@@ -13,7 +13,11 @@ import android.os.SystemClock
 import ru.skachay.app.download.DirectDownloader
 import ru.skachay.app.download.MediaStoreWriter
 import ru.skachay.app.download.MediaType
+import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.YtDlpRuntime
 import java.io.File
+import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -66,7 +70,7 @@ class DownloadService : Service() {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
             return
         }
-        var file: File? = null
+        var directory: File? = null
         try {
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
             val previous = history.getString(url, null)?.let(Uri::parse)
@@ -75,29 +79,48 @@ class DownloadService : Service() {
                 notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type))
                 return
             }
-            file = File.createTempFile("media-", ".tmp", cacheDir)
+            directory = File(cacheDir, "job-${UUID.randomUUID()}")
+            if (!directory.mkdir()) throw IOException("Could not create temporary folder")
             var lastUpdate = 0L
-            downloader.download(url, file) { received, total ->
+            val report: (Int?) -> Unit = { percent ->
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastUpdate >= 500 || received == total) {
+                if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    val percent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                     notifySafely(FOREGROUND_ID, progressNotification(percent))
                 }
             }
-            val header = ByteArray(32)
-            val length = file.inputStream().use { it.read(header).coerceAtLeast(0) }
-            val mime = MediaType.detect(header.copyOf(length), url)
-                ?: throw IllegalArgumentException("Not a supported media file")
+            val file = if (SourceType.isYouTube(url)) {
+                YtDlpRuntime.download(this, url, directory, report)
+            } else {
+                val direct = File(directory, "direct.tmp")
+                try {
+                    downloader.download(url, direct) { received, total ->
+                        report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
+                    }
+                    if (detect(direct, url) == null) throw IOException("Not a direct media link")
+                    direct
+                } catch (_: IOException) {
+                    direct.delete()
+                    YtDlpRuntime.download(this, url, directory, report)
+                }
+            }
+            val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
+                ?: throw IOException("Not a supported media file")
             val uri = MediaStoreWriter(this).save(file, mime)
             history.edit().putString(url, uri.toString()).apply()
             notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime))
         } catch (_: Exception) {
             notifySafely(id, errorNotification(url, id))
         } finally {
-            file?.delete()
+            directory?.deleteRecursively()
             activeUrls.remove(url)
         }
+    }
+
+    private fun detect(file: File, url: String): String? {
+        val header = ByteArray(32)
+        val length = file.inputStream().use { it.read(header).coerceAtLeast(0) }
+        return MediaType.detect(header.copyOf(length), url)
     }
 
     private fun exists(uri: Uri): Boolean = try {
