@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.Skachay.Share" parent="android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>
