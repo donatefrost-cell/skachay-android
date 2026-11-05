@@ -5,6 +5,8 @@ import java.net.InetSocketAddress
 import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
+import okhttp3.OkHttpClient
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -16,6 +18,75 @@ import org.junit.rules.TemporaryFolder
 class DirectDownloaderTest {
     @get:Rule
     val temp = TemporaryFolder()
+
+    @Test
+    fun retriesTemporaryServerFailuresWithBackoff() {
+        val attempts = AtomicInteger()
+        val waits = mutableListOf<Long>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/file") { exchange ->
+            if (attempts.incrementAndGet() <= 2) {
+                exchange.sendResponseHeaders(503, -1)
+            } else {
+                val content = byteArrayOf(1, 2, 3)
+                exchange.sendResponseHeaders(200, content.size.toLong())
+                exchange.responseBody.use { it.write(content) }
+            }
+            exchange.close()
+        }
+        server.start()
+        try {
+            val output = temp.newFile("retry.bin")
+            DirectDownloader(OkHttpClient(), retryDelay = { waits.add(it) })
+                .download("http://127.0.0.1:${server.address.port}/file", output)
+            assertArrayEquals(byteArrayOf(1, 2, 3), output.readBytes())
+            assertEquals(listOf(250L, 500L), waits)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun resumesAnInterruptedRangeWhenTheResourceHasNotChanged() {
+        val content = ByteArray(2048) { (it % 251).toByte() }
+        val interrupted = AtomicBoolean()
+        val resumed = AtomicBoolean()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val executor = Executors.newCachedThreadPool()
+        server.executor = executor
+        server.createContext("/file") { exchange ->
+            val range = exchange.requestHeaders.getFirst("Range")
+            val bounds = Regex("bytes=(\\d+)-(\\d+)").matchEntire(range.orEmpty())
+            if (bounds == null) {
+                exchange.sendResponseHeaders(200, content.size.toLong())
+                exchange.responseBody.use { it.write(content) }
+            } else {
+                val start = bounds.groupValues[1].toInt()
+                val end = bounds.groupValues[2].toInt()
+                if (start == 512 && exchange.requestHeaders.getFirst("If-Range") == "\"fixed\"") resumed.set(true)
+                exchange.responseHeaders.add("ETag", "\"fixed\"")
+                exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${content.size}")
+                exchange.sendResponseHeaders(206, (end - start + 1).toLong())
+                if (start == 0 && end == 1023 && interrupted.compareAndSet(false, true)) {
+                    exchange.responseBody.write(content, 0, 512)
+                    exchange.close()
+                } else {
+                    exchange.responseBody.use { it.write(content, start, end - start + 1) }
+                }
+            }
+        }
+        server.start()
+        try {
+            val output = temp.newFile("resume.bin")
+            DirectDownloader(OkHttpClient(), retryDelay = { })
+                .download("http://127.0.0.1:${server.address.port}/file", output, connections = 2)
+            assertArrayEquals(content, output.readBytes())
+            assertTrue("Expected a request starting at the interrupted byte", resumed.get())
+        } finally {
+            server.stop(0)
+            executor.shutdownNow()
+        }
+    }
 
     @Test
     fun downloadsPublicImageWhenLiveNetworkTestingIsEnabled() {

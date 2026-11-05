@@ -1,8 +1,10 @@
 package ru.skachay.app.download
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -11,7 +13,10 @@ import java.util.concurrent.Executors
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-class DirectDownloader(private val client: OkHttpClient = OkHttpClient()) {
+class DirectDownloader(
+    private val client: OkHttpClient = OkHttpClient(),
+    private val retryDelay: (Long) -> Unit = { Thread.sleep(it) },
+) {
     fun download(
         url: String,
         destination: File,
@@ -27,21 +32,24 @@ class DirectDownloader(private val client: OkHttpClient = OkHttpClient()) {
             val progress = Progress(onProgress)
             val probe = request(url, headers).header("Range", "bytes=0-0")
                 .header("Accept-Encoding", "identity").build()
-            val info = client.newCall(probe).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                if (response.code == 206) {
-                    val match = Regex("bytes 0-0/(\\d+)").matchEntire(response.header("Content-Range").orEmpty())
-                    val size = match?.groupValues?.get(1)?.toLongOrNull()
-                    val etag = response.header("ETag")?.takeUnless { it.startsWith("W/", true) }
-                    size?.let { Probe(it, etag ?: response.header("Last-Modified"), etag) }
-                } else null
+            val info = retry {
+                client.newCall(probe).execute().use { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
+                    if (response.code == 206) {
+                        val match = Regex("bytes 0-0/(\\d+)").matchEntire(response.header("Content-Range").orEmpty())
+                        val size = match?.groupValues?.get(1)?.toLongOrNull()
+                        val etag = response.header("ETag")?.takeUnless { it.startsWith("W/", true) }
+                        size?.let { Probe(it, etag ?: response.header("Last-Modified"), etag) }
+                    } else null
+                }
             }
             if (info == null || info.size < 2 || connections == 1) {
                 downloadWhole(url, temporary, headers, progress)
             } else {
                 try {
                     downloadRanges(url, temporary, info, connections, headers, progress)
-                } catch (_: IOException) {
+                } catch (error: IOException) {
+                    if (Thread.currentThread().isInterrupted) throw error
                     downloadWhole(url, temporary, headers, progress)
                 }
             }
@@ -59,13 +67,15 @@ class DirectDownloader(private val client: OkHttpClient = OkHttpClient()) {
 
     private fun downloadWhole(url: String, destination: File, headers: Map<String, String>, progress: Progress) {
         val request = request(url, headers).header("Accept-Encoding", "identity").build()
-        client.newCall(request).execute().use { response ->
-            if (response.code != 200) throw IOException("HTTP ${response.code}")
-            val body = response.body
-            val expected = body.contentLength()
-            progress.reset(expected.takeIf { it >= 0 })
-            destination.outputStream().use { copy(body.byteStream(), it, progress) }
-            if (expected >= 0 && destination.length() != expected) throw IOException("Incomplete response")
+        retry {
+            client.newCall(request).execute().use { response ->
+                if (response.code != 200) throw HttpStatusException(response.code)
+                val body = response.body
+                val expected = body.contentLength()
+                progress.reset(expected.takeIf { it >= 0 })
+                destination.outputStream().use { copy(body.byteStream(), it, progress) }
+                if (expected >= 0 && destination.length() != expected) throw IOException("Incomplete response")
+            }
         }
     }
 
@@ -80,21 +90,31 @@ class DirectDownloader(private val client: OkHttpClient = OkHttpClient()) {
                 val start = size * index / count
                 val end = size * (index + 1) / count - 1
                 Callable {
-                    val request = request(url, headers).header("Range", "bytes=$start-$end")
-                        .header("Accept-Encoding", "identity")
-                        .apply { info.validator?.let { header("If-Range", it) } }
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val expectedRange = "bytes $start-$end/$size"
-                        if (response.code != 206 || response.header("Content-Range") != expectedRange) {
-                            throw IOException("Invalid range response")
+                    retry {
+                        val completed = part.length()
+                        if (completed > 0 && (info.validator == null || completed >= end - start + 1)) {
+                            throw UnusableRangeException("Cannot safely resume this range")
                         }
-                        val receivedEtag = response.header("ETag")
-                        if (info.etag != null && receivedEtag != null && info.etag != receivedEtag) {
-                            throw IOException("Resource changed")
+                        val requestStart = start + completed
+                        val request = request(url, headers).header("Range", "bytes=$requestStart-$end")
+                            .header("Accept-Encoding", "identity")
+                            .apply { info.validator?.let { header("If-Range", it) } }
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.code >= 400) throw HttpStatusException(response.code)
+                            val expectedRange = "bytes $requestStart-$end/$size"
+                            if (response.code != 206 || response.header("Content-Range") != expectedRange) {
+                                throw UnusableRangeException("Invalid range response")
+                            }
+                            val receivedEtag = response.header("ETag")
+                            if (info.etag != null && receivedEtag != null && info.etag != receivedEtag) {
+                                throw UnusableRangeException("Resource changed")
+                            }
+                            FileOutputStream(part, completed > 0).buffered().use { output ->
+                                copy(response.body.byteStream(), output, progress)
+                            }
+                            if (part.length() != end - start + 1) throw IOException("Incomplete range")
                         }
-                        part.outputStream().use { copy(response.body.byteStream(), it, progress) }
-                        if (part.length() != end - start + 1) throw IOException("Incomplete range")
                     }
                 }
             }
@@ -116,6 +136,28 @@ class DirectDownloader(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     private data class Probe(val size: Long, val validator: String?, val etag: String?)
+
+    private class HttpStatusException(val code: Int) : IOException("HTTP $code")
+    private class UnusableRangeException(message: String) : IOException(message)
+
+    private fun <T> retry(operation: () -> T): T {
+        var attempt = 0
+        while (true) {
+            try {
+                return operation()
+            } catch (error: IOException) {
+                val retryableStatus = error !is HttpStatusException || error.code == 408 || error.code == 429 || error.code in 500..599
+                if (attempt >= 2 || error is UnusableRangeException || !retryableStatus || Thread.currentThread().isInterrupted) throw error
+                try {
+                    retryDelay(250L shl attempt)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw InterruptedIOException("Download interrupted").apply { initCause(interrupted) }
+                }
+                attempt++
+            }
+        }
+    }
 
     private fun copy(input: InputStream, output: OutputStream, progress: Progress) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
