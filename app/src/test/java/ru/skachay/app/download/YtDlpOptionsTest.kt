@@ -15,4 +15,12 @@ class YtDlpOptionsTest {
         assertFalse(args.contains("--recode-video"))
         assertFalse(args.contains("--embed-thumbnail"))
     }
+
+    @Test
+    fun permitsFormatsWithoutHeightMetadataForInstagram() {
+        val args = YtDlpOptions.request("https://www.instagram.com/reel/abc/", "/cache/media.%(ext)s").buildCommand()
+        val index = args.indexOf("--format")
+        assertTrue(index >= 0)
+        assertFalse(args[index + 1].contains("height<=720"))
+    }
 }

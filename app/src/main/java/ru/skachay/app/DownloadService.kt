@@ -10,10 +10,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import ru.skachay.app.download.DirectDownloader
 import ru.skachay.app.download.MediaStoreWriter
 import ru.skachay.app.download.MediaType
+import ru.skachay.app.download.InstagramLink
+import ru.skachay.app.download.InstagramResolver
+import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.TikTokLink
+import ru.skachay.app.download.TikTokResolver
 import ru.skachay.app.download.YtDlpRuntime
 import java.io.File
 import java.io.IOException
@@ -25,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class DownloadService : Service() {
     private val executor = Executors.newFixedThreadPool(2)
     private val downloader = DirectDownloader()
+    private val instagram = InstagramResolver()
+    private val tiktok = TikTokResolver()
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val nextId = AtomicInteger(100)
@@ -38,11 +46,12 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val url = SharedUrl.firstIn(intent?.getStringExtra(EXTRA_URL))
-        if (url == null) {
+        val shared = SharedUrl.firstIn(intent?.getStringExtra(EXTRA_URL))
+        if (shared == null) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        val url = shared
         startForeground(FOREGROUND_ID, progressNotification(null))
         synchronized(lock) {
             running++
@@ -66,14 +75,15 @@ class DownloadService : Service() {
     }
 
     private fun download(url: String, id: Int) {
-        if (!activeUrls.add(url)) {
+        val historyKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
+        if (!activeUrls.add(historyKey)) {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
             return
         }
         var directory: File? = null
         try {
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
-            val previous = history.getString(url, null)?.let(Uri::parse)
+            val previous = history.getString(historyKey, null)?.let(Uri::parse)
             if (previous != null && exists(previous)) {
                 val type = contentResolver.getType(previous) ?: "*/*"
                 notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type))
@@ -89,32 +99,75 @@ class DownloadService : Service() {
                     notifySafely(FOREGROUND_ID, progressNotification(percent))
                 }
             }
-            val file = if (SourceType.isYouTube(url)) {
-                YtDlpRuntime.download(this, url, directory, report)
-            } else {
-                val direct = File(directory, "direct.tmp")
-                try {
-                    downloader.download(url, direct) { received, total ->
-                        report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
-                    }
-                    if (detect(direct, url) == null) throw IOException("Not a direct media link")
-                    direct
-                } catch (_: IOException) {
-                    direct.delete()
-                    YtDlpRuntime.download(this, url, directory, report)
-                }
+            val items = when {
+                InstagramLink.supports(url) -> instagram.resolve(url)
+                TikTokLink.supports(url) -> tiktok.resolve(url)
+                else -> emptyList()
             }
-            val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
-                ?: throw IOException("Not a supported media file")
-            val uri = MediaStoreWriter(this).save(file, mime)
-            history.edit().putString(url, uri.toString()).apply()
+            val saved = if (items.isNotEmpty()) {
+                saveResolvedItems(items, directory, report)
+            } else {
+                if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
+                val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
+                    YtDlpRuntime.download(this, url, directory, report)
+                } else {
+                    val direct = File(directory, "direct.tmp")
+                    try {
+                        downloader.download(url, direct) { received, total ->
+                            report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
+                        }
+                        if (detect(direct, url) == null) throw IOException("Not a direct media link")
+                        direct
+                    } catch (_: IOException) {
+                        direct.delete()
+                        YtDlpRuntime.download(this, url, directory, report)
+                    }
+                }
+                val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
+                    ?: throw IOException("Not a supported media file")
+                if (InstagramLink.isVideoPost(url) && !mime.startsWith("video/")) {
+                    throw IOException("Expected video")
+                }
+                if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
+                listOf(MediaStoreWriter(this).save(file, mime) to mime)
+            }
+            val (uri, mime) = saved.first()
+            history.edit().putString(historyKey, uri.toString()).apply()
             notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime))
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            val message = error.message.orEmpty().replace(Regex("https?://\\S+"), "[ссылка]").take(300)
+            Log.w("Skachay", "Загрузка: ${error.javaClass.simpleName}: $message")
             notifySafely(id, errorNotification(url, id))
         } finally {
             directory?.deleteRecursively()
-            activeUrls.remove(url)
+            activeUrls.remove(historyKey)
         }
+    }
+
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, report: (Int?) -> Unit): List<Pair<Uri, String>> {
+        val files = items.mapIndexed { index, item ->
+            val file = File(directory, "item-$index.tmp")
+            downloader.download(item.url, file, headers = item.headers) { received, total ->
+                val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
+                report(itemPercent?.let { (index * 100 + it) / items.size })
+            }
+            val mime = detect(file, item.url) ?: throw IOException("Not a supported media file")
+            val expected = when (item.type) {
+                ResolvedMedia.Kind.IMAGE -> "image/"
+                ResolvedMedia.Kind.VIDEO -> "video/"
+                ResolvedMedia.Kind.AUDIO -> "audio/"
+            }
+            if (!mime.startsWith(expected)) throw IOException("Unexpected media type")
+            file to mime
+        }
+        val saved = mutableListOf<Pair<Uri, String>>()
+        try {
+            files.forEach { (file, mime) -> saved += MediaStoreWriter(this).save(file, mime) to mime }
+        } catch (error: Exception) {
+            saved.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
+            throw error
+        }
+        return saved
     }
 
     private fun detect(file: File, url: String): String? {
@@ -158,11 +211,16 @@ class DownloadService : Service() {
     private fun errorNotification(url: String, id: Int): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         val pending = PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val message = when {
+            InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
+            TikTokLink.supports(url) -> "Публикация может быть закрыта или недоступна. Проверьте ссылку и попробуйте ещё раз."
+            else -> "Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."
+        }
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle("Не получилось скачать")
             .setContentText("Проверьте ссылку и попробуйте ещё раз")
-            .setStyle(Notification.BigTextStyle().bigText("Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."))
+            .setStyle(Notification.BigTextStyle().bigText(message))
             .addAction(Notification.Action.Builder(null, "Повторить", pending).build())
             .setAutoCancel(true)
             .build()
