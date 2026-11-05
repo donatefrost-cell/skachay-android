@@ -3,6 +3,7 @@ package ru.skachay.app.download
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.skachay.app.settings.Quality
 
 class YtDlpOptionsTest {
     @Test
@@ -22,5 +23,12 @@ class YtDlpOptionsTest {
         val index = args.indexOf("--format")
         assertTrue(index >= 0)
         assertFalse(args[index + 1].contains("height<=720"))
+    }
+
+    @Test
+    fun bestPresetAllowsCompatibleVideoUpTo1080p() {
+        val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s", Quality.BEST).buildCommand()
+        assertTrue(args.any { it.contains("height<=1080") && it.contains("avc1") })
+        assertFalse(args.any { it.contains("height<=720") })
     }
 }

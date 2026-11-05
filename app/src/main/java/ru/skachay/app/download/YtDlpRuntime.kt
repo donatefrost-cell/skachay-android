@@ -9,6 +9,7 @@ import java.util.UUID
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
+import ru.skachay.app.settings.Quality
 
 object YtDlpRuntime {
     private val initialization = Any()
@@ -39,13 +40,13 @@ object YtDlpRuntime {
         }
     }
 
-    fun download(context: Context, url: String, directory: File, onProgress: (Int?) -> Unit): File {
+    fun download(context: Context, url: String, directory: File, quality: Quality = Quality.AUTO, onProgress: (Int?) -> Unit): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
         RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
-                    val request = YtDlpOptions.request(url, template)
+                    val request = YtDlpOptions.request(url, template, quality)
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, _ ->
                         onProgress(progress.takeIf { it in 0f..100f }?.toInt())
                     }

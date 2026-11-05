@@ -26,10 +26,19 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import ru.skachay.app.settings.AppSettings
+import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.SettingsRepository
 
 class DownloadService : Service() {
-    private val executor = Executors.newFixedThreadPool(2)
+    private val scheduler = Executors.newSingleThreadExecutor()
+    private val executor = ThreadPoolExecutor(2, 4, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
     private val downloader = DirectDownloader()
     private val instagram = InstagramResolver()
     private val tiktok = TikTokResolver()
@@ -58,23 +67,38 @@ class DownloadService : Service() {
             latestStartId = startId
         }
         val id = nextId.incrementAndGet()
-        executor.execute {
+        val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
+        scheduler.execute {
             try {
-                download(url, id)
-            } finally {
-                synchronized(lock) {
-                    running--
-                    if (running == 0) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelfResult(latestStartId)
+                val settings = runBlocking { SettingsRepository.forContext(this@DownloadService).settings.first() }
+                executor.corePoolSize = settings.parallelDownloads
+                executor.execute {
+                    try {
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality))
+                    } finally {
+                        finishJob()
                     }
                 }
+            } catch (error: Exception) {
+                Log.w("Skachay", "Не удалось начать загрузку", error)
+                notifySafely(id, errorNotification(url, id, overrideQuality))
+                finishJob()
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun download(url: String, id: Int) {
+    private fun finishJob() {
+        synchronized(lock) {
+            running--
+            if (running == 0) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelfResult(latestStartId)
+            }
+        }
+    }
+
+    private fun download(url: String, id: Int, settings: AppSettings) {
         val historyKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
         if (!activeUrls.add(historyKey)) {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
@@ -105,22 +129,22 @@ class DownloadService : Service() {
                 else -> emptyList()
             }
             val saved = if (items.isNotEmpty()) {
-                saveResolvedItems(items, directory, report)
+                saveResolvedItems(items, directory, settings.connections, report)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
-                    YtDlpRuntime.download(this, url, directory, report)
+                    YtDlpRuntime.download(this, url, directory, settings.quality, report)
                 } else {
                     val direct = File(directory, "direct.tmp")
                     try {
-                        downloader.download(url, direct) { received, total ->
+                        downloader.download(url, direct, connections = settings.connections) { received, total ->
                             report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
                         }
                         if (detect(direct, url) == null) throw IOException("Not a direct media link")
                         direct
                     } catch (_: IOException) {
                         direct.delete()
-                        YtDlpRuntime.download(this, url, directory, report)
+                        YtDlpRuntime.download(this, url, directory, settings.quality, report)
                     }
                 }
                 val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
@@ -133,21 +157,24 @@ class DownloadService : Service() {
             }
             val (uri, mime) = saved.first()
             history.edit().putString(historyKey, uri.toString()).apply()
+            getSharedPreferences("download_files", MODE_PRIVATE).edit().apply {
+                saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
+            }.apply()
             notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime))
         } catch (error: Exception) {
             val message = error.message.orEmpty().replace(Regex("https?://\\S+"), "[ссылка]").take(300)
             Log.w("Skachay", "Загрузка: ${error.javaClass.simpleName}: $message")
-            notifySafely(id, errorNotification(url, id))
+            notifySafely(id, errorNotification(url, id, settings.quality))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, report: (Int?) -> Unit): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, report: (Int?) -> Unit): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
-            downloader.download(item.url, file, headers = item.headers) { received, total ->
+            downloader.download(item.url, file, connections = connections, headers = item.headers) { received, total ->
                 val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                 report(itemPercent?.let { (index * 100 + it) / items.size })
             }
@@ -208,8 +235,9 @@ class DownloadService : Service() {
         return builder.build()
     }
 
-    private fun errorNotification(url: String, id: Int): Notification {
+    private fun errorNotification(url: String, id: Int, quality: Quality?): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
+        quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
         val pending = PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
             InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
@@ -237,17 +265,20 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        scheduler.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        scheduler.shutdownNow()
         executor.shutdownNow()
         stopSelf(startId)
     }
 
     companion object {
         const val EXTRA_URL = "url"
+        const val EXTRA_QUALITY = "quality"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
     }

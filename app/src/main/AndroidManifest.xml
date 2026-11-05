@@ -21,6 +21,11 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".ChoiceActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Skachay.Share" />
+        <activity
             android:name=".ShareActivity"
             android:exported="true"
             android:excludeFromRecents="true"
