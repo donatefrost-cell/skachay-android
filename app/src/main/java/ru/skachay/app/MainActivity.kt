@@ -61,6 +61,8 @@ import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
+import ru.skachay.app.updates.UpdateBanner
+import ru.skachay.app.updates.UpdateCheckButton
 
 class MainActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -123,6 +125,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
             Text("Скачай", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
             TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 56.dp)) { Text("Настройки") }
         }
+        UpdateBanner()
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Как скачать видео", style = MaterialTheme.typography.titleLarge)
@@ -168,6 +171,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
         Text("Качество видео YouTube", style = MaterialTheme.typography.titleLarge)
         Option("Авто — до 720p", settings.quality == Quality.AUTO) { scope.launch { repository.setQuality(Quality.AUTO) } }
         Option("Лучшее — до 1080p", settings.quality == Quality.BEST) { scope.launch { repository.setQuality(Quality.BEST) } }
+        UpdateCheckButton()
         if (settings.mode == UserMode.ADVANCED) {
             Text("Режим «Поделиться»", style = MaterialTheme.typography.titleLarge)
             Option("Авто, в фоне", settings.shareMode == ShareMode.AUTO) { scope.launch { repository.setShareMode(ShareMode.AUTO) } }

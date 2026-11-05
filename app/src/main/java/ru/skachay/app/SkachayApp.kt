@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
+import ru.skachay.app.updates.UpdateWorker
 
 class SkachayApp : Application() {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
@@ -23,6 +24,10 @@ class SkachayApp : Application() {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("recipe-update", ExistingPeriodicWorkPolicy.KEEP, recipes)
+        val updates = PeriodicWorkRequest.Builder(UpdateWorker::class.java, 1, TimeUnit.DAYS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("app-update", ExistingPeriodicWorkPolicy.KEEP, updates)
         maintenance.execute {
             try {
                 YtDlpRuntime.initialize(this)
