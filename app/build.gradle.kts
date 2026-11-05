@@ -3,6 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.0").get().removePrefix("v")
+require(Regex("\\d{1,4}\\.\\d{1,3}(?:\\.\\d{1,3})?").matches(releaseVersion)) {
+    "releaseVersion должен иметь вид 1.0 или 1.0.1"
+}
+val releaseParts = releaseVersion.split('.').map(String::toInt)
+val releaseCode = releaseParts[0] * 1_000_000 + releaseParts[1] * 1_000 + releaseParts.getOrElse(2) { 0 }
+require(releaseParts[0] <= 2099 && releaseCode in 1..2_100_000_000) { "Недопустимый номер версии" }
+
+val signingValues = listOf("SKACHAY_KEYSTORE_PATH", "SKACHAY_KEYSTORE_PASSWORD", "SKACHAY_KEY_ALIAS", "SKACHAY_KEY_PASSWORD")
+    .map { providers.environmentVariable(it).orNull }
+require(signingValues.all { it.isNullOrBlank() } || signingValues.none { it.isNullOrBlank() }) {
+    "Для подписывания нужны путь к ключу, оба пароля и псевдоним ключа"
+}
+
 android {
     namespace = "ru.skachay.app"
     compileSdk = 37
@@ -11,17 +25,29 @@ android {
         applicationId = "ru.skachay.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = releaseCode
+        versionName = releaseVersion
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
+    signingConfigs {
+        if (signingValues.none { it.isNullOrBlank() }) {
+            create("production") {
+                storeFile = file(signingValues[0]!!)
+                storePassword = signingValues[1]
+                keyAlias = signingValues[2]
+                keyPassword = signingValues[3]
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("production")
         }
     }
 
