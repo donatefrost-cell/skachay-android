@@ -15,31 +15,47 @@ import ru.skachay.app.settings.ShareMode
 
 class ShareActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var pending = 0
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         overridePendingTransition(0, 0)
-        val text = when (intent?.action) {
-            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
-            Intent.ACTION_VIEW -> intent.dataString
+        accept(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        accept(intent)
+    }
+
+    private fun accept(incoming: Intent?) {
+        val text = when (incoming?.action) {
+            Intent.ACTION_SEND -> incoming.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> incoming.dataString
             else -> null
         }
         val url = SharedUrl.firstIn(text)
         if (url == null) {
             Toast.makeText(this, "Не удалось найти ссылку", Toast.LENGTH_LONG).show()
-            finishWithoutAnimation()
+            if (pending == 0) finishWithoutAnimation()
         } else {
+            pending++
             scope.launch {
-                val settings = SettingsRepository.forContext(this@ShareActivity).settings.first()
-                if (settings.shareMode == ShareMode.CHOOSE) {
-                    startActivity(Intent(this@ShareActivity, ChoiceActivity::class.java)
-                        .putExtra(DownloadService.EXTRA_URL, url)
-                        .putExtra(DownloadService.EXTRA_QUALITY, settings.quality.name))
-                } else {
-                    startDownload(this@ShareActivity, url)
+                try {
+                    val settings = SettingsRepository.forContext(this@ShareActivity).settings.first()
+                    if (settings.shareMode == ShareMode.CHOOSE) {
+                        startActivity(Intent(this@ShareActivity, ChoiceActivity::class.java)
+                            .putExtra(DownloadService.EXTRA_URL, url)
+                            .putExtra(DownloadService.EXTRA_QUALITY, settings.quality.name))
+                    } else {
+                        startDownload(this@ShareActivity, url)
+                    }
+                } finally {
+                    pending--
+                    if (pending == 0) finishWithoutAnimation()
                 }
-                finishWithoutAnimation()
             }
         }
     }

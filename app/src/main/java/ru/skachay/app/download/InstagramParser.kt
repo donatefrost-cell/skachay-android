@@ -4,31 +4,33 @@ import java.net.URI
 import java.net.URISyntaxException
 import org.json.JSONException
 import org.json.JSONObject
+import ru.skachay.app.recipes.InstagramRecipe
+import ru.skachay.app.recipes.RecipeRegistry
 
 object InstagramParser {
-    fun parse(html: String, requireVideo: Boolean = false): List<ResolvedMedia> {
-        val items = parseContent(html)
+    fun parse(html: String, requireVideo: Boolean = false, recipe: InstagramRecipe = RecipeRegistry.current.instagram): List<ResolvedMedia> {
+        val items = parseContent(html, recipe)
         return if (requireVideo && items.none { it.type == ResolvedMedia.Kind.VIDEO }) emptyList() else items
     }
 
-    private fun parseContent(html: String): List<ResolvedMedia> {
+    private fun parseContent(html: String, recipe: InstagramRecipe): List<ResolvedMedia> {
         val layers = mutableListOf(html.replace("&amp;", "&").replace("&quot;", "\""))
         repeat(3) { layers.add(unescapeLayer(layers.last())) }
         for (layer in layers) {
-            val carousel = carousel(layer)
+            val carousel = carousel(layer, recipe)
             if (carousel != null) return carousel
         }
         for (layer in layers) {
-            field(layer, "video_url")?.let { media(it, ResolvedMedia.Kind.VIDEO) }?.let { return listOf(it) }
+            field(layer, recipe.videoField)?.let { media(it, ResolvedMedia.Kind.VIDEO) }?.let { return listOf(it) }
         }
         for (layer in layers) {
-            field(layer, "display_url")?.let { media(it, ResolvedMedia.Kind.IMAGE) }?.let { return listOf(it) }
+            field(layer, recipe.imageField)?.let { media(it, ResolvedMedia.Kind.IMAGE) }?.let { return listOf(it) }
         }
-        return openGraph(layers.first())
+        return openGraph(layers.first(), recipe)
     }
 
-    private fun carousel(text: String): List<ResolvedMedia>? {
-        val marker = Regex("\"edge_sidecar_to_children\"\\s*:\\s*").find(text) ?: return null
+    private fun carousel(text: String, recipe: InstagramRecipe): List<ResolvedMedia>? {
+        val marker = Regex("\"${recipe.carouselField}\"\\s*:\\s*").find(text) ?: return null
         val start = marker.range.last + 1
         if (start >= text.length || text[start] != '{') return null
         val json = balancedObject(text, start) ?: return null
@@ -40,7 +42,7 @@ object InstagramParser {
             val node = edge.optJSONObject("node") ?: return emptyList()
             val video = node.optBoolean("is_video") || node.optString("__typename") == "GraphVideo"
             val kind = if (video) ResolvedMedia.Kind.VIDEO else ResolvedMedia.Kind.IMAGE
-            val key = if (video) "video_url" else "display_url"
+            val key = if (video) recipe.videoField else recipe.imageField
             val item = media(node.optString(key), kind) ?: return emptyList()
             result.add(item)
         }
@@ -72,7 +74,7 @@ object InstagramParser {
         catch (_: JSONException) { null }
     }
 
-    private fun openGraph(html: String): List<ResolvedMedia> {
+    private fun openGraph(html: String, recipe: InstagramRecipe): List<ResolvedMedia> {
         val attributes = Regex("([\\w:-]+)\\s*=\\s*([\"'])(.*?)\\2", RegexOption.DOT_MATCHES_ALL)
         val values = mutableMapOf<String, String>()
         Regex("<meta\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(html).forEach { tag ->
@@ -80,10 +82,13 @@ object InstagramParser {
             val key = attrs["property"] ?: attrs["name"]
             if (key != null && attrs["content"] != null) values[key.lowercase()] = attrs.getValue("content")
         }
-        for (key in listOf("og:video:secure_url", "og:video", "twitter:player:stream")) {
+        for (key in recipe.videoMeta) {
             values[key]?.let { media(it, ResolvedMedia.Kind.VIDEO) }?.let { return listOf(it) }
         }
-        return values["og:image"]?.let { media(it, ResolvedMedia.Kind.IMAGE) }?.let(::listOf) ?: emptyList()
+        for (key in recipe.imageMeta) {
+            values[key]?.let { media(it, ResolvedMedia.Kind.IMAGE) }?.let { return listOf(it) }
+        }
+        return emptyList()
     }
 
     private fun media(value: String, kind: ResolvedMedia.Kind): ResolvedMedia? {

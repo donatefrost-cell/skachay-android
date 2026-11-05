@@ -3,8 +3,16 @@ package ru.skachay.app.download
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.skachay.app.recipes.InstagramRecipe
 
 class InstagramParserTest {
+    @Test
+    fun readsFieldsSpecifiedInTheRecipe() {
+        val recipe = InstagramRecipe(videoField = "new_video")
+        val media = InstagramParser.parse("""{"new_video":"https://cdn.example/video.mp4"}""", recipe = recipe)
+        assertEquals("https://cdn.example/video.mp4", media.single().url)
+    }
+
     @Test
     fun extractsAllItemsInMixedCarouselWithoutVideoThumbnails() {
         val html = """<script>{"edge_sidecar_to_children":{"edges":[{"node":{"is_video":false,"display_url":"https:\/\/cdn.example\/photo.jpg?x=1\u0026y=2"}},{"node":{"is_video":true,"display_url":"https:\/\/cdn.example\/cover.jpg","video_url":"https:\/\/cdn.example\/video.mp4"}}]}}</script>"""

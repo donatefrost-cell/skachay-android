@@ -35,6 +35,7 @@ import kotlinx.coroutines.runBlocking
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
+import ru.skachay.app.recipes.RecipeRegistry
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
@@ -133,6 +134,8 @@ class DownloadService : Service() {
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
+                    if (InstagramLink.supports(url) && !RecipeRegistry.current.instagram.ytDlpEnabled) throw IOException("Instagram fallback disabled")
+                    if (TikTokLink.supports(url) && !RecipeRegistry.current.tiktok.ytDlpEnabled) throw IOException("TikTok fallback disabled")
                     YtDlpRuntime.download(this, url, directory, settings.quality, report)
                 } else {
                     val direct = File(directory, "direct.tmp")

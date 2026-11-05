@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "revision": 1,
+  "instagram": {
+    "embed_enabled": true,
+    "page_enabled": true,
+    "ytdlp_enabled": true,
+    "embed_template": "https://www.instagram.com/p/{shortcode}/embed/captioned/",
+    "page_template": "https://www.instagram.com/p/{shortcode}/",
+    "mobile_agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
+    "facebook_agent": "facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)",
+    "ios_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
+    "post_pattern": "^/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$",
+    "video_pattern": "^/(?:[A-Za-z0-9._]+/)?(?:reel|reels|tv)/[A-Za-z0-9_-]+/?$",
+    "video_field": "video_url",
+    "image_field": "display_url",
+    "carousel_field": "edge_sidecar_to_children",
+    "video_meta": ["og:video:secure_url", "og:video", "twitter:player:stream"],
+    "image_meta": ["og:image"]
+  },
+  "tiktok": {
+    "page_enabled": true,
+    "ytdlp_enabled": true,
+    "mobile_agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
+    "referer": "https://www.tiktok.com/",
+    "post_pattern": "/(?:video|photo)/(\\d+)(?:/|$)",
+    "photo_pattern": "/photo/\\d+(?:/|$)",
+    "script_ids": ["__UNIVERSAL_DATA_FOR_REHYDRATION__", "SIGI_STATE"],
+    "image_post_fields": ["imagePost", "image_post"],
+    "image_url_fields": ["imageURL", "displayImage", "image_url"],
+    "video_url_fields": ["playAddr", "play_addr", "downloadAddr"],
+    "nested_url_fields": ["urlList", "url_list", "UrlList", "urls", "url", "src"]
+  }
+}

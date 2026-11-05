@@ -8,6 +8,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import ru.skachay.app.recipes.RecipeRegistry
 
 class TikTokResolver : MediaResolver {
     private val cookies = SessionCookies()
@@ -15,8 +16,10 @@ class TikTokResolver : MediaResolver {
 
     override fun resolve(url: String): List<ResolvedMedia> {
         if (!TikTokLink.supports(url)) return emptyList()
-        val request = Request.Builder().url(url).header("User-Agent", MOBILE)
-            .header("Referer", "https://www.tiktok.com/").build()
+        val recipe = RecipeRegistry.current.tiktok
+        if (!recipe.pageEnabled) return emptyList()
+        val request = Request.Builder().url(url).header("User-Agent", recipe.mobileAgent)
+            .header("Referer", recipe.referer).build()
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return emptyList()
@@ -34,8 +37,8 @@ class TikTokResolver : MediaResolver {
                     if (text.length > MAX_HTML) return emptyList()
                     text.toString()
                 }
-                TikTokParser.parse(html, id).map { item ->
-                    val headers = mutableMapOf("User-Agent" to MOBILE, "Referer" to finalUrl)
+                TikTokParser.parse(html, id, recipe).map { item ->
+                    val headers = mutableMapOf("User-Agent" to recipe.mobileAgent, "Referer" to finalUrl)
                     val cookieHeader = item.url.toHttpUrlOrNull()?.let(cookies::headerFor)
                     if (!cookieHeader.isNullOrEmpty()) headers["Cookie"] = cookieHeader
                     item.copy(headers = headers)
@@ -68,6 +71,5 @@ class TikTokResolver : MediaResolver {
 
     companion object {
         private const val MAX_HTML = 4_000_000
-        private const val MOBILE = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 }

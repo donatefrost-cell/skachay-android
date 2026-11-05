@@ -1,8 +1,10 @@
 package ru.skachay.app.download
 
+import com.google.re2j.Pattern
 import java.net.URI
 import java.net.URISyntaxException
 import java.util.Locale
+import ru.skachay.app.recipes.RecipeRegistry
 
 object InstagramLink {
     fun canonical(url: String): String? = shortcode(url)?.let { "https://www.instagram.com/p/$it/" }
@@ -10,7 +12,7 @@ object InstagramLink {
     fun isVideoPost(url: String): Boolean {
         if (!supports(url)) return false
         val path = parse(url)?.rawPath ?: return false
-        return Regex("^/(?:[A-Za-z0-9._]+/)?(?:reel|reels|tv)/[A-Za-z0-9_-]+/?$").matches(path)
+        return path.length <= 2048 && Pattern.compile(RecipeRegistry.current.instagram.videoPattern).matcher(path).matches()
     }
 
     fun supports(url: String): Boolean {
@@ -23,8 +25,10 @@ object InstagramLink {
     fun shortcode(url: String): String? {
         if (!supports(url)) return null
         val path = parse(url)?.rawPath ?: return null
-        return Regex("^/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$")
-            .matchEntire(path)?.groupValues?.get(1)
+        if (path.length > 2048) return null
+        val match = Pattern.compile(RecipeRegistry.current.instagram.postPattern).matcher(path)
+        if (!match.matches()) return null
+        return match.group(1)?.takeIf { Regex("[A-Za-z0-9_-]{1,128}").matches(it) }
     }
 
     private fun parse(url: String): URI? {

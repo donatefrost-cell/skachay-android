@@ -3,8 +3,16 @@ package ru.skachay.app.download
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.skachay.app.recipes.TikTokRecipe
 
 class TikTokParserTest {
+    @Test
+    fun readsScriptAndVideoFieldSpecifiedInTheRecipe() {
+        val recipe = TikTokRecipe(scriptIds = listOf("NEW_STATE"), videoUrlFields = listOf("newAddress"))
+        val html = """<script id="NEW_STATE">{"item":{"id":"123","video":{"newAddress":"https://cdn.example/video.mp4"}}}</script>"""
+        assertEquals("https://cdn.example/video.mp4", TikTokParser.parse(html, "123", recipe).single().url)
+    }
+
     @Test
     fun readsVideoForTheRequestedPost() {
         val html = """<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{"data":{"itemStruct":{"id":"123","video":{"playAddr":"https://cdn.example/no-watermark.mp4","downloadAddr":"https://cdn.example/watermark.mp4"}}}}</script>"""
