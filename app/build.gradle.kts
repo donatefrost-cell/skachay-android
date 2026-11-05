@@ -77,6 +77,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("com.google.code.gson:gson:2.14.0")
     implementation("com.google.re2j:re2j:1.8")
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")

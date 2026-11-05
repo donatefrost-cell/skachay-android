@@ -42,6 +42,7 @@ import ru.skachay.app.diagnostics.DownloadStage
 import ru.skachay.app.diagnostics.StageTimer
 import ru.skachay.app.diagnostics.diagnosticError
 import ru.skachay.app.diagnostics.providerFor
+import ru.skachay.app.choice.PreviewStore
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
@@ -75,13 +76,16 @@ class DownloadService : Service() {
         }
         val id = nextId.incrementAndGet()
         val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
+        val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
+        val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
+        val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
         scheduler.execute {
             try {
                 val settings = runBlocking { SettingsRepository.forContext(this@DownloadService).settings.first() }
                 executor.corePoolSize = settings.parallelDownloads
                 executor.execute {
                     try {
-                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality))
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly)
                     } finally {
                         finishJob()
                     }
@@ -91,7 +95,7 @@ class DownloadService : Service() {
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
-                notifySafely(id, errorNotification(url, id, overrideQuality))
+                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly))
                 finishJob()
             }
         }
@@ -108,8 +112,9 @@ class DownloadService : Service() {
         }
     }
 
-    private fun download(url: String, id: Int, settings: AppSettings) {
-        val historyKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
+    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean) {
+        val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
+        val historyKey = if (formatId == null) baseKey else "$baseKey::format:$formatId:$videoOnly"
         if (!activeUrls.add(historyKey)) {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
             return
@@ -151,7 +156,11 @@ class DownloadService : Service() {
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
                     if (InstagramLink.supports(url) && !RecipeRegistry.current.instagram.ytDlpEnabled) throw IOException("Instagram fallback disabled")
                     if (TikTokLink.supports(url) && !RecipeRegistry.current.tiktok.ytDlpEnabled) throw IOException("TikTok fallback disabled")
-                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo)
+                    val cached = if (SourceType.isYouTube(url) && (usePreview || formatId != null)) {
+                        PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
+                    } else null
+                    val selected = formatId?.let { wanted -> cached?.preview?.formats?.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
+                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly)
                 } else {
                     val direct = File(directory, "direct.tmp")
                     try {
@@ -185,7 +194,7 @@ class DownloadService : Service() {
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
-            notifySafely(id, errorNotification(url, id, settings.quality))
+            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
@@ -257,9 +266,11 @@ class DownloadService : Service() {
         return builder.build()
     }
 
-    private fun errorNotification(url: String, id: Int, quality: Quality?): Notification {
+    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
+        retry.putExtra(EXTRA_USE_PREVIEW, usePreview).putExtra(EXTRA_VIDEO_ONLY, videoOnly)
+        formatId?.let { retry.putExtra(EXTRA_FORMAT_ID, it) }
         val pending = PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
             InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
@@ -301,6 +312,9 @@ class DownloadService : Service() {
     companion object {
         const val EXTRA_URL = "url"
         const val EXTRA_QUALITY = "quality"
+        const val EXTRA_USE_PREVIEW = "use_preview"
+        const val EXTRA_FORMAT_ID = "format_id"
+        const val EXTRA_VIDEO_ONLY = "video_only"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
     }

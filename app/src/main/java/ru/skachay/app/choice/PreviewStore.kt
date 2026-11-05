@@ -1,0 +1,63 @@
+package ru.skachay.app.choice
+
+import android.content.Context
+import java.io.File
+import java.io.IOException
+import java.security.MessageDigest
+import ru.skachay.app.download.YtDlpRuntime
+
+internal data class CachedPreview(val file: File, val preview: VideoPreview)
+
+internal object PreviewLifetime {
+    private const val FRESH_MS = 15 * 60 * 1000L
+    private const val RETAIN_MS = 60 * 60 * 1000L
+
+    fun isFresh(age: Long): Boolean = age in 0..FRESH_MS
+    fun isUsableForDownload(age: Long): Boolean = age in 0..RETAIN_MS
+    fun isExpired(age: Long): Boolean = age > RETAIN_MS
+}
+
+internal object PreviewStore {
+    private val lock = Any()
+    private const val MAX_CACHE_BYTES = 32_000_000L
+
+    fun getOrFetch(context: Context, url: String): CachedPreview = synchronized(lock) {
+        load(context, url)?.let { return it }
+        val directory = directory(context)
+        directory.listFiles()?.filter { PreviewLifetime.isExpired(System.currentTimeMillis() - it.lastModified()) }?.forEach(File::delete)
+        val json = YtDlpRuntime.extractPreview(context, url)
+        val preview = PreviewParser.parse(json) ?: throw IOException("Invalid media metadata")
+        val file = file(context, url)
+        val temporary = File.createTempFile("preview-", ".tmp", directory)
+        try {
+            temporary.writeText(json, Charsets.UTF_8)
+            if (temporary.length() > MAX_CACHE_BYTES) throw IOException("Media metadata is too large")
+            java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            temporary.delete()
+        }
+        CachedPreview(file, preview)
+    }
+
+    fun load(context: Context, url: String, forDownload: Boolean = false): CachedPreview? {
+        val file = file(context, url)
+        val age = System.currentTimeMillis() - file.lastModified()
+        val usable = if (forDownload) PreviewLifetime.isUsableForDownload(age) else PreviewLifetime.isFresh(age)
+        if (!file.isFile || file.length() > MAX_CACHE_BYTES || !usable) return null
+        return try {
+            PreviewParser.parse(file.readText(Charsets.UTF_8))?.let { CachedPreview(file, it) }
+        } catch (_: IOException) {
+            null
+        }
+    }
+
+    private fun directory(context: Context): File = File(context.cacheDir, "previews").apply {
+        if (!isDirectory && !mkdirs()) throw IOException("Could not create preview folder")
+    }
+
+    private fun file(context: Context, url: String): File {
+        val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
+        val name = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return File(directory(context), "$name.json")
+    }
+}

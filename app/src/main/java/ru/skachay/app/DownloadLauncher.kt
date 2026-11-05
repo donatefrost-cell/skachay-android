@@ -5,9 +5,19 @@ import android.content.Intent
 import android.widget.Toast
 import ru.skachay.app.settings.Quality
 
-internal fun startDownload(context: Context, url: String, quality: Quality? = null) {
+internal fun startDownload(
+    context: Context,
+    url: String,
+    quality: Quality? = null,
+    usePreview: Boolean = false,
+    formatId: String? = null,
+    videoOnly: Boolean = false,
+) {
     val service = Intent(context, DownloadService::class.java).putExtra(DownloadService.EXTRA_URL, url)
     quality?.let { service.putExtra(DownloadService.EXTRA_QUALITY, it.name) }
+    service.putExtra(DownloadService.EXTRA_USE_PREVIEW, usePreview)
+    formatId?.let { service.putExtra(DownloadService.EXTRA_FORMAT_ID, it) }
+    service.putExtra(DownloadService.EXTRA_VIDEO_ONLY, videoOnly)
     try {
         context.startForegroundService(service)
         Toast.makeText(context, "Скачиваю… результат будет в уведомлении", Toast.LENGTH_LONG).show()

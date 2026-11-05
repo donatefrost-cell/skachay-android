@@ -4,6 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.choice.AvailableFormat
 
 class YtDlpOptionsTest {
     @Test
@@ -30,5 +31,27 @@ class YtDlpOptionsTest {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s", Quality.BEST).buildCommand()
         assertTrue(args.any { it.contains("height<=1080") && it.contains("avc1") })
         assertFalse(args.any { it.contains("height<=720") })
+    }
+
+    @Test
+    fun usesTheExtractedInfoAndSelectedFormatWithoutExtractingTheUrlAgain() {
+        val selected = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
+        val args = YtDlpOptions.request("https://youtu.be/example", "/cache/video.%(ext)s", Quality.AUTO,
+            infoJson = "/cache/info.json", selected = selected).buildCommand()
+        assertTrue(args.contains("--load-info-json") && args.contains("/cache/info.json"))
+        assertTrue(args.contains("137+bestaudio[ext=m4a]/137+bestaudio"))
+        assertFalse(args.contains("https://youtu.be/example"))
+    }
+
+    @Test
+    fun preservesAudioOnlyAndVideoWithoutAudioSelections() {
+        val video = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
+        val audio = AvailableFormat("140", "m4a", null, "mp4a", null, null, 128, null)
+        val withoutAudio = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", selected = video, videoOnly = true).buildCommand()
+        val audioOnly = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", selected = audio).buildCommand()
+        assertTrue(withoutAudio.contains("137"))
+        assertTrue(audioOnly.contains("140"))
+        assertFalse(withoutAudio.any { it.contains("bestaudio") })
+        assertFalse(audioOnly.any { it.contains("bestaudio") })
     }
 }
