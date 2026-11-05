@@ -43,6 +43,10 @@ import ru.skachay.app.diagnostics.StageTimer
 import ru.skachay.app.diagnostics.diagnosticError
 import ru.skachay.app.diagnostics.providerFor
 import ru.skachay.app.choice.PreviewStore
+import ru.skachay.app.choice.SocialPreviewStore
+import ru.skachay.app.choice.SocialSelection
+
+private class SocialPreviewUnavailable : IOException()
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
@@ -79,13 +83,15 @@ class DownloadService : Service() {
         val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
         val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
+        val socialPreviewId = intent?.getStringExtra(EXTRA_SOCIAL_PREVIEW_ID)
+        val selectedItems = intent?.getIntArrayExtra(EXTRA_SELECTED_ITEMS)
         scheduler.execute {
             try {
                 val settings = runBlocking { SettingsRepository.forContext(this@DownloadService).settings.first() }
                 executor.corePoolSize = settings.parallelDownloads
                 executor.execute {
                     try {
-                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly)
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly, socialPreviewId, selectedItems)
                     } finally {
                         finishJob()
                     }
@@ -95,7 +101,7 @@ class DownloadService : Service() {
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
-                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly))
+                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems))
                 finishJob()
             }
         }
@@ -112,9 +118,19 @@ class DownloadService : Service() {
         }
     }
 
-    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean) {
+    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?) {
         val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
-        val historyKey = if (formatId == null) baseKey else "$baseKey::format:$formatId:$videoOnly"
+        val socialRequested = socialPreviewId != null || selectedItems != null
+        val socialPreview = if (socialPreviewId != null && selectedItems != null) {
+            try { SocialPreviewStore.load(this, url, socialPreviewId) } catch (_: IOException) { null }
+        } else null
+        val chosenItems = if (socialPreview != null && selectedItems != null) SocialSelection.items(socialPreview.items, selectedItems) else null
+        val historyKey = when {
+            socialPreview != null && chosenItems != null && selectedItems != null -> SocialSelection.historyKey(baseKey, selectedItems, socialPreview.items.size)
+            socialRequested -> "$baseKey::expired-selection"
+            formatId != null -> "$baseKey::format:$formatId:$videoOnly"
+            else -> baseKey
+        }
         if (!activeUrls.add(historyKey)) {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
             return
@@ -124,6 +140,7 @@ class DownloadService : Service() {
         val timer = StageTimer(SystemClock::elapsedRealtime)
         var directory: File? = null
         try {
+            if (socialRequested && chosenItems == null) throw SocialPreviewUnavailable()
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
             val previous = history.getString(historyKey, null)?.let(Uri::parse)
             if (previous != null && exists(previous)) {
@@ -143,7 +160,7 @@ class DownloadService : Service() {
                 }
             }
             timer.switchTo(DownloadStage.EXTRACTION)
-            val items = when {
+            val items = chosenItems ?: when {
                 InstagramLink.supports(url) -> instagram.resolve(url)
                 TikTokLink.supports(url) -> tiktok.resolve(url)
                 else -> emptyList()
@@ -194,7 +211,7 @@ class DownloadService : Service() {
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
-            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly))
+            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, error is SocialPreviewUnavailable))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
@@ -266,13 +283,20 @@ class DownloadService : Service() {
         return builder.build()
     }
 
-    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean): Notification {
+    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, chooseAgain: Boolean = false): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
         retry.putExtra(EXTRA_USE_PREVIEW, usePreview).putExtra(EXTRA_VIDEO_ONLY, videoOnly)
         formatId?.let { retry.putExtra(EXTRA_FORMAT_ID, it) }
-        val pending = PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        socialPreviewId?.let { retry.putExtra(EXTRA_SOCIAL_PREVIEW_ID, it) }
+        selectedItems?.let { retry.putExtra(EXTRA_SELECTED_ITEMS, it) }
+        val pending = if (chooseAgain) {
+            val choice = Intent(this, ChoiceActivity::class.java).putExtra(EXTRA_URL, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            quality?.let { choice.putExtra(EXTRA_QUALITY, it.name) }
+            PendingIntent.getActivity(this, id, choice, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        } else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
+            chooseAgain -> "Сведения о выбранных файлах устарели. Откройте выбор и отметьте нужные файлы заново."
             InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
             TikTokLink.supports(url) -> "Публикация может быть закрыта или недоступна. Проверьте ссылку и попробуйте ещё раз."
             else -> "Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."
@@ -282,7 +306,7 @@ class DownloadService : Service() {
             .setContentTitle("Не получилось скачать")
             .setContentText("Проверьте ссылку и попробуйте ещё раз")
             .setStyle(Notification.BigTextStyle().bigText(message))
-            .addAction(Notification.Action.Builder(null, "Повторить", pending).build())
+            .addAction(Notification.Action.Builder(null, if (chooseAgain) "Выбрать заново" else "Повторить", pending).build())
             .setAutoCancel(true)
             .build()
     }
@@ -315,6 +339,8 @@ class DownloadService : Service() {
         const val EXTRA_USE_PREVIEW = "use_preview"
         const val EXTRA_FORMAT_ID = "format_id"
         const val EXTRA_VIDEO_ONLY = "video_only"
+        const val EXTRA_SOCIAL_PREVIEW_ID = "social_preview_id"
+        const val EXTRA_SELECTED_ITEMS = "selected_items"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
     }

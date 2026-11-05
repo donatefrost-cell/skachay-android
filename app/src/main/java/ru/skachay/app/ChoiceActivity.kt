@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -54,7 +58,12 @@ import okhttp3.Request
 import ru.skachay.app.choice.AvailableFormat
 import ru.skachay.app.choice.CachedPreview
 import ru.skachay.app.choice.PreviewStore
+import ru.skachay.app.choice.SocialPreview
+import ru.skachay.app.choice.SocialPreviewStore
+import ru.skachay.app.download.InstagramLink
+import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.settings.Quality
 
 private sealed interface PreviewState {
@@ -62,6 +71,7 @@ private sealed interface PreviewState {
     data object Loading : PreviewState
     data object Failed : PreviewState
     data class Ready(val cached: CachedPreview) : PreviewState
+    data class SocialReady(val cached: SocialPreview) : PreviewState
 }
 
 class ChoiceActivity : ComponentActivity() {
@@ -73,6 +83,8 @@ class ChoiceActivity : ComponentActivity() {
         val url = SharedUrl.firstIn(intent.getStringExtra(DownloadService.EXTRA_URL))
         if (url == null) { finish(); return }
         val initial = Quality.entries.firstOrNull { it.name == intent.getStringExtra(DownloadService.EXTRA_QUALITY) } ?: Quality.AUTO
+        val isYouTube = SourceType.isYouTube(url)
+        val isSocial = InstagramLink.supports(url) || TikTokLink.supports(url)
         setContent {
             SkachayTheme {
                 var quality by remember { mutableStateOf(initial) }
@@ -80,11 +92,18 @@ class ChoiceActivity : ComponentActivity() {
                 var videoOnly by remember { mutableStateOf(false) }
                 var showFormats by remember { mutableStateOf(false) }
                 var showAudio by remember { mutableStateOf(false) }
-                var state by remember(url) { mutableStateOf<PreviewState>(if (SourceType.isYouTube(url)) PreviewState.Loading else PreviewState.NotNeeded) }
+                var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
+                var state by remember(url) { mutableStateOf<PreviewState>(if (isYouTube || isSocial) PreviewState.Loading else PreviewState.NotNeeded) }
                 LaunchedEffect(url) {
                     if (state is PreviewState.Loading) {
                         state = try {
-                            PreviewState.Ready(withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) })
+                            if (isYouTube) {
+                                PreviewState.Ready(withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) })
+                            } else {
+                                val preview = withContext(Dispatchers.IO) { SocialPreviewStore.getOrFetch(applicationContext, url) }
+                                selectedItems = preview.items.indices.toSet()
+                                PreviewState.SocialReady(preview)
+                            }
                         } catch (error: CancellationException) { throw error }
                         catch (error: Exception) {
                             android.util.Log.w("SkachayPreview", "Не удалось получить сведения: ${error.javaClass.simpleName}")
@@ -95,26 +114,47 @@ class ChoiceActivity : ComponentActivity() {
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 ModalBottomSheet(onDismissRequest = { finish() }, sheetState = sheetState) {
                     Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.82f).dp).padding(horizontal = 24.dp)) {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Скачать", style = MaterialTheme.typography.headlineSmall)
+                        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { Text("Скачать", style = MaterialTheme.typography.headlineSmall) }
                             when (val previewState = state) {
-                                PreviewState.Loading -> Text("Получаю сведения о видео…")
-                                PreviewState.Failed -> Text("Не удалось получить список форматов. Можно попробовать скачать автоматически.")
-                                PreviewState.NotNeeded -> Text("Для этой ссылки приложение выберет доступный файл автоматически.")
-                                is PreviewState.Ready -> {
-                                    PreviewCard(previewState.cached)
-                                    if (previewState.cached.preview.formats.isNotEmpty()) {
-                                        FilledTonalButton(onClick = { showFormats = !showFormats }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                                            Text(if (showFormats) "Скрыть форматы" else "Выбрать конкретный формат")
+                                PreviewState.Loading -> item { Text("Получаю сведения о публикации…") }
+                                PreviewState.Failed -> item { Text("Не удалось получить список файлов. Можно попробовать скачать автоматически.") }
+                                PreviewState.NotNeeded -> item { Text("Для этой ссылки приложение выберет доступный файл автоматически.") }
+                                is PreviewState.Ready -> item {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        PreviewCard(previewState.cached)
+                                        if (previewState.cached.preview.formats.isNotEmpty()) {
+                                            FilledTonalButton(onClick = { showFormats = !showFormats }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                                                Text(if (showFormats) "Скрыть форматы" else "Выбрать конкретный формат")
+                                            }
+                                        }
+                                    }
+                                }
+                                is PreviewState.SocialReady -> {
+                                    item {
+                                        Column {
+                                            Text("Выберите файлы публикации", style = MaterialTheme.typography.titleMedium)
+                                            TextButton(onClick = {
+                                                selectedItems = if (selectedItems.size == previewState.cached.items.size) emptySet() else previewState.cached.items.indices.toSet()
+                                            }, modifier = Modifier.heightIn(min = 56.dp)) {
+                                                Text(if (selectedItems.size == previewState.cached.items.size) "Снять все" else "Выбрать все")
+                                            }
+                                        }
+                                    }
+                                    itemsIndexed(previewState.cached.items) { index, media ->
+                                        SocialChoiceRow(media, index, index in selectedItems) {
+                                            selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
                                         }
                                     }
                                 }
                             }
-                            selected?.let { Text("Выбрано: ${formatLabel(this@ChoiceActivity, it)}", style = MaterialTheme.typography.bodyMedium) }
-                            Text("Качество видео YouTube", style = MaterialTheme.typography.titleMedium)
-                            Quality.entries.forEach { option ->
-                                ChoiceRow(if (option == Quality.AUTO) "Авто — до 720p" else "Лучшее — до 1080p", selected == null && quality == option) {
-                                    quality = option; selected = null; videoOnly = false
+                            if (isYouTube) {
+                                selected?.let { format -> item { Text("Выбрано: ${formatLabel(this@ChoiceActivity, format)}", style = MaterialTheme.typography.bodyMedium) } }
+                                item { Text("Качество видео YouTube", style = MaterialTheme.typography.titleMedium) }
+                                items(Quality.entries) { option ->
+                                    ChoiceRow(if (option == Quality.AUTO) "Авто — до 720p" else "Лучшее — до 1080p", selected == null && quality == option) {
+                                        quality = option; selected = null; videoOnly = false
+                                    }
                                 }
                             }
                             val formats = (state as? PreviewState.Ready)?.cached?.preview?.formats.orEmpty()
@@ -122,38 +162,61 @@ class ChoiceActivity : ComponentActivity() {
                                 val video = formats.filter { it.hasVideo }.sortedWith(compareByDescending<AvailableFormat> { it.height ?: 0 }.thenByDescending { it.fps ?: 0 })
                                 val audio = formats.filter { !it.hasVideo && it.hasAudio }
                                     .sortedWith(compareByDescending<AvailableFormat> { it.isOriginalAudio }.thenByDescending { it.audioBitrate ?: 0 }.thenBy { it.isVolumeBalanced })
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(onClick = { showAudio = false }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "Видео" else "✓ Видео") }
-                                    TextButton(onClick = { showAudio = true }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "✓ Только звук" else "Только звук") }
+                                item {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(onClick = { showAudio = false }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "Видео" else "✓ Видео") }
+                                        TextButton(onClick = { showAudio = true }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "✓ Только звук" else "Только звук") }
+                                    }
                                 }
                                 if (!showAudio) {
-                                    video.forEach { format ->
-                                        ChoiceRow(formatLabel(this@ChoiceActivity, format), selected?.id == format.id) { selected = format; videoOnly = false }
-                                        if (selected?.id == format.id && !format.hasAudio) {
-                                            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = videoOnly, onClick = { videoOnly = !videoOnly }), verticalAlignment = Alignment.CenterVertically) {
-                                                Checkbox(checked = videoOnly, onCheckedChange = null)
-                                                Text("Видео без звука")
+                                    items(video) { format ->
+                                        Column {
+                                            ChoiceRow(formatLabel(this@ChoiceActivity, format), selected?.id == format.id) { selected = format; videoOnly = false }
+                                            if (selected?.id == format.id && !format.hasAudio) {
+                                                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = videoOnly, onClick = { videoOnly = !videoOnly }), verticalAlignment = Alignment.CenterVertically) {
+                                                    Checkbox(checked = videoOnly, onCheckedChange = null)
+                                                    Text("Видео без звука")
+                                                }
                                             }
                                         }
                                     }
                                 } else if (audio.isEmpty()) {
-                                    Text("Для этого видео подходящий аудиоформат не найден.")
+                                    item { Text("Для этого видео подходящий аудиоформат не найден.") }
                                 } else {
-                                    audio.forEach { format ->
+                                    items(audio) { format ->
                                         ChoiceRow(formatLabel(this@ChoiceActivity, format), selected?.id == format.id) { selected = format; videoOnly = false }
                                     }
                                 }
                             }
                         }
-                        Button(enabled = state !is PreviewState.Loading, onClick = {
+                        Button(enabled = state !is PreviewState.Loading && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
+                            val social = state as? PreviewState.SocialReady
                             startDownload(this@ChoiceActivity, url, quality, usePreview = state is PreviewState.Ready,
-                                formatId = selected?.id, videoOnly = videoOnly)
+                                formatId = selected?.id, videoOnly = videoOnly, socialPreviewId = social?.cached?.id,
+                                selectedItems = social?.let { selectedItems.sorted().toIntArray() })
                             finish()
                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp)) { Text("Скачать") }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SocialChoiceRow(media: ResolvedMedia, index: Int, selected: Boolean, onClick: () -> Unit) {
+    val thumbnail by produceState<Bitmap?>(initialValue = null, media.url, media.headers) {
+        value = if (media.type == ResolvedMedia.Kind.IMAGE) withContext(Dispatchers.IO) { loadThumbnail(media.url, media.headers, 160) } else null
+    }
+    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).selectable(selected = selected, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = selected, onCheckedChange = null)
+        thumbnail?.let { Image(it.asImageBitmap(), contentDescription = null, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
+        val name = when (media.type) {
+            ResolvedMedia.Kind.IMAGE -> "Фото"
+            ResolvedMedia.Kind.VIDEO -> "Видео"
+            ResolvedMedia.Kind.AUDIO -> "Аудио"
+        }
+        Text("$name ${index + 1}", Modifier.padding(start = 12.dp))
     }
 }
 
@@ -201,9 +264,11 @@ private fun formatLabel(context: Context, format: AvailableFormat): String {
     return parts.joinToString(" · ")
 }
 
-private fun loadThumbnail(url: String): Bitmap? = try {
-    val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
-    client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+private val thumbnailClient = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+
+private fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(), maxDimension: Int = 600): Bitmap? = try {
+    val request = Request.Builder().url(url).apply { headers.forEach { (name, value) -> header(name, value) } }.build()
+    thumbnailClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful || response.body.contentLength() > 3_000_000) return null
         val bytes = ByteArrayOutputStream()
         response.body.byteStream().use { input ->
@@ -216,6 +281,11 @@ private fun loadThumbnail(url: String): Bitmap? = try {
             }
         }
         val data = bytes.toByteArray()
-        BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = 2 })
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        if (bounds.outWidth !in 1..32768 || bounds.outHeight !in 1..32768) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension && sample < 128) sample *= 2
+        BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })
     }
 } catch (_: IOException) { null }

@@ -181,7 +181,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
         if (settings.mode == UserMode.ADVANCED) {
             Text("Режим «Поделиться»", style = MaterialTheme.typography.titleLarge)
             Option("Авто, в фоне", settings.shareMode == ShareMode.AUTO) { scope.launch { repository.setShareMode(ShareMode.AUTO) } }
-            Option("С выбором качества", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
+            Option("С выбором", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
             Counter("Одновременных загрузок", settings.parallelDownloads, 1..4) { scope.launch { repository.setParallelDownloads(it) } }
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
