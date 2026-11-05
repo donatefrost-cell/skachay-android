@@ -13,12 +13,14 @@ import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
 import ru.skachay.app.updates.UpdateWorker
+import ru.skachay.app.diagnostics.DiagnosticsStore
 
 class SkachayApp : Application() {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
 
     override fun onCreate() {
         super.onCreate()
+        DiagnosticsStore.markInterrupted(this)
         RecipeStore.load(this)
         val recipes = PeriodicWorkRequest.Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

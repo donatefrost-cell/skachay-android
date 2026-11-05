@@ -63,6 +63,7 @@ import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
+import ru.skachay.app.diagnostics.DiagnosticsScreen
 
 class MainActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -78,13 +79,18 @@ class MainActivity : ComponentActivity() {
                     val settings by repository.settings.collectAsState(initial = null)
                     val scope = rememberCoroutineScope()
                     var showSettings by remember { mutableStateOf(false) }
-                    BackHandler(enabled = showSettings) { showSettings = false }
+                    var showDiagnostics by remember { mutableStateOf(false) }
+                    BackHandler(enabled = showSettings || showDiagnostics) {
+                        if (showDiagnostics) showDiagnostics = false else showSettings = false
+                    }
                     when (val current = settings) {
                         null -> Unit
                         else -> if (!current.onboardingComplete) {
                             WelcomeScreen { mode -> scope.launch { repository.selectMode(mode) } }
+                        } else if (showDiagnostics) {
+                            DiagnosticsScreen(onBack = { showDiagnostics = false })
                         } else if (showSettings) {
-                            SettingsScreen(current, repository, onBack = { showSettings = false })
+                            SettingsScreen(current, repository, onBack = { showSettings = false }, onDiagnostics = { showDiagnostics = true })
                         } else {
                             HomeScreen(current, refresh, onSettings = { showSettings = true })
                         }
@@ -160,7 +166,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
 }
 
 @Composable
-private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit) {
+private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
     Page {
         TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 56.dp)) { Text("← Назад") }
@@ -178,6 +184,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             Option("С выбором качества", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
             Counter("Одновременных загрузок", settings.parallelDownloads, 1..4) { scope.launch { repository.setParallelDownloads(it) } }
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
+            FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
         }
     }
 }

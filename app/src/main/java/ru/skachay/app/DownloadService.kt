@@ -36,6 +36,12 @@ import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.recipes.RecipeRegistry
+import ru.skachay.app.diagnostics.DiagnosticStatus
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.DownloadStage
+import ru.skachay.app.diagnostics.StageTimer
+import ru.skachay.app.diagnostics.diagnosticError
+import ru.skachay.app.diagnostics.providerFor
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
@@ -81,7 +87,10 @@ class DownloadService : Service() {
                     }
                 }
             } catch (error: Exception) {
-                Log.w("Skachay", "Не удалось начать загрузку", error)
+                Log.w("Skachay", "Не удалось начать загрузку: ${error.javaClass.simpleName}")
+                val provider = providerFor(url)
+                val job = DiagnosticsStore.begin(this, provider)
+                DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
                 notifySafely(id, errorNotification(url, id, overrideQuality))
                 finishJob()
             }
@@ -105,12 +114,16 @@ class DownloadService : Service() {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
             return
         }
+        val provider = providerFor(url)
+        val job = DiagnosticsStore.begin(this, provider)
+        val timer = StageTimer(SystemClock::elapsedRealtime)
         var directory: File? = null
         try {
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
             val previous = history.getString(historyKey, null)?.let(Uri::parse)
             if (previous != null && exists(previous)) {
                 val type = contentResolver.getType(previous) ?: "*/*"
+                DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.ALREADY, emptyMap())
                 notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type))
                 return
             }
@@ -124,22 +137,25 @@ class DownloadService : Service() {
                     notifySafely(FOREGROUND_ID, progressNotification(percent))
                 }
             }
+            timer.switchTo(DownloadStage.EXTRACTION)
             val items = when {
                 InstagramLink.supports(url) -> instagram.resolve(url)
                 TikTokLink.supports(url) -> tiktok.resolve(url)
                 else -> emptyList()
             }
             val saved = if (items.isNotEmpty()) {
-                saveResolvedItems(items, directory, settings.connections, report)
+                timer.switchTo(DownloadStage.TRANSFER)
+                saveResolvedItems(items, directory, settings.connections, timer, report)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
                     if (InstagramLink.supports(url) && !RecipeRegistry.current.instagram.ytDlpEnabled) throw IOException("Instagram fallback disabled")
                     if (TikTokLink.supports(url) && !RecipeRegistry.current.tiktok.ytDlpEnabled) throw IOException("TikTok fallback disabled")
-                    YtDlpRuntime.download(this, url, directory, settings.quality, report)
+                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo)
                 } else {
                     val direct = File(directory, "direct.tmp")
                     try {
+                        timer.switchTo(DownloadStage.TRANSFER)
                         downloader.download(url, direct, connections = settings.connections) { received, total ->
                             report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
                         }
@@ -147,7 +163,7 @@ class DownloadService : Service() {
                         direct
                     } catch (_: IOException) {
                         direct.delete()
-                        YtDlpRuntime.download(this, url, directory, settings.quality, report)
+                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo)
                     }
                 }
                 val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
@@ -156,6 +172,7 @@ class DownloadService : Service() {
                     throw IOException("Expected video")
                 }
                 if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
+                timer.switchTo(DownloadStage.SAVING)
                 listOf(MediaStoreWriter(this).save(file, mime) to mime)
             }
             val (uri, mime) = saved.first()
@@ -163,10 +180,11 @@ class DownloadService : Service() {
             getSharedPreferences("download_files", MODE_PRIVATE).edit().apply {
                 saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
             }.apply()
+            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish())
             notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime))
         } catch (error: Exception) {
-            val message = error.message.orEmpty().replace(Regex("https?://\\S+"), "[ссылка]").take(300)
-            Log.w("Skachay", "Загрузка: ${error.javaClass.simpleName}: $message")
+            Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
+            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
             notifySafely(id, errorNotification(url, id, settings.quality))
         } finally {
             directory?.deleteRecursively()
@@ -174,7 +192,7 @@ class DownloadService : Service() {
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, report: (Int?) -> Unit): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, timer: StageTimer, report: (Int?) -> Unit): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
             downloader.download(item.url, file, connections = connections, headers = item.headers) { received, total ->
@@ -192,6 +210,7 @@ class DownloadService : Service() {
         }
         val saved = mutableListOf<Pair<Uri, String>>()
         try {
+            timer.switchTo(DownloadStage.SAVING)
             files.forEach { (file, mime) -> saved += MediaStoreWriter(this).save(file, mime) to mime }
         } catch (error: Exception) {
             saved.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
