@@ -192,6 +192,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
             EngineUpdateControl(settings.engineChannel, repository)
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
+            StorageControls()
         }
     }
 }
