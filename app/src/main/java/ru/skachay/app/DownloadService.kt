@@ -12,6 +12,8 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import ru.skachay.app.download.DirectDownloader
+import ru.skachay.app.download.AudioBitrate
+import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.MediaStoreWriter
 import ru.skachay.app.download.MediaType
 import ru.skachay.app.download.InstagramLink
@@ -76,6 +78,12 @@ class DownloadService : Service() {
         val url = shared
         val id = nextId.incrementAndGet()
         val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
+        val audioExport = AudioExport.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_AUDIO_EXPORT) } ?: AudioExport.SOURCE
+        val audioBitrate = AudioBitrate.entries.firstOrNull { it.kilobits == intent?.getIntExtra(EXTRA_AUDIO_BITRATE, 192) } ?: AudioBitrate.K192
+        val subtitleLanguage = intent?.getStringExtra(EXTRA_SUBTITLE_LANGUAGE)
+            ?.takeIf { Regex("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*").matches(it) }
+        val subtitleAutomatic = intent?.getBooleanExtra(EXTRA_SUBTITLE_AUTOMATIC, false) ?: false
+        val embedSubtitles = intent?.getBooleanExtra(EXTRA_EMBED_SUBTITLES, false) ?: false
         val fileName = SavedFileName.clean(intent?.getStringExtra(EXTRA_FILE_NAME))
         startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality, fileName))
         synchronized(lock) {
@@ -93,7 +101,8 @@ class DownloadService : Service() {
                 executor.corePoolSize = settings.parallelDownloads
                 executor.execute {
                     try {
-                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName)
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly,
+                            socialPreviewId, selectedItems, fileName, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles)
                     } finally {
                         finishJob()
                     }
@@ -103,7 +112,9 @@ class DownloadService : Service() {
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
-                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName))
+                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
+                    audioExport = audioExport, audioBitrate = audioBitrate, subtitleLanguage = subtitleLanguage,
+                    subtitleAutomatic = subtitleAutomatic, embedSubtitles = embedSubtitles))
                 finishJob()
             }
         }
@@ -120,19 +131,29 @@ class DownloadService : Service() {
         }
     }
 
-    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, fileName: String?) {
+    private fun download(
+        url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean,
+        socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, audioExport: AudioExport,
+        audioBitrate: AudioBitrate, subtitleLanguage: String?, subtitleAutomatic: Boolean, embedSubtitles: Boolean,
+    ) {
         val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
         val socialRequested = socialPreviewId != null || selectedItems != null
         val socialPreview = if (socialPreviewId != null && selectedItems != null) {
             try { SocialPreviewStore.load(this, url, socialPreviewId) } catch (_: IOException) { null }
         } else null
         val chosenItems = if (socialPreview != null && selectedItems != null) SocialSelection.items(socialPreview.items, selectedItems) else null
-        val historyKey = when {
+        val baseHistoryKey = when {
             socialPreview != null && chosenItems != null && selectedItems != null -> SocialSelection.historyKey(baseKey, selectedItems, socialPreview.items.size)
             socialRequested -> "$baseKey::expired-selection"
             formatId != null -> "$baseKey::format:$formatId:$videoOnly"
             else -> baseKey
         }
+        val optionSuffix = buildString {
+            if (audioExport != AudioExport.SOURCE) append("::audio:${audioExport.name}:${audioBitrate.kilobits}")
+            if (subtitleLanguage != null) append("::subs:$subtitleLanguage:${if (subtitleAutomatic) "auto" else "manual"}:${if (embedSubtitles) "embedded" else "file"}")
+            if (settings.quality != Quality.AUTO && formatId == null && !socialRequested) append("::quality:${settings.quality.name}")
+        }
+        val historyKey = baseHistoryKey + optionSuffix
         if (!activeUrls.add(historyKey)) {
             notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null, url, id, settings.quality, fileName))
             return
@@ -181,7 +202,8 @@ class DownloadService : Service() {
                     } else null
                     val selected = formatId?.let { wanted -> cached?.preview?.formats?.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
                     audioOnly = selected != null && !selected.hasVideo && selected.hasAudio
-                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly, settings.retries)
+                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected,
+                        videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles)
                 } else {
                     val direct = File(directory, "direct.tmp")
                     timer.switchTo(DownloadStage.TRANSFER)
@@ -200,7 +222,20 @@ class DownloadService : Service() {
                 }
                 if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
                 timer.switchTo(DownloadStage.SAVING)
-                listOf(MediaStoreWriter(this).save(file, mime, fileName) to mime)
+                val output = mutableListOf(MediaStoreWriter(this).save(file, mime, fileName) to mime)
+                val subtitleFiles = subtitleLanguage?.let { language ->
+                    directory.listFiles()?.filter { it.isFile && it.name.startsWith("video.$language.") && it.extension.equals("srt", true) }.orEmpty()
+                }.orEmpty()
+                try {
+                    subtitleFiles.forEach { subtitle ->
+                        val subtitleName = "${fileName ?: file.nameWithoutExtension}.$subtitleLanguage"
+                        output += MediaStoreWriter(this).save(subtitle, "application/x-subrip", subtitleName) to "application/x-subrip"
+                    }
+                } catch (error: Exception) {
+                    output.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
+                    throw error
+                }
+                output
             }
             val (uri, mime) = saved.first()
             history.edit().putString(historyKey, uri.toString()).apply()
@@ -212,7 +247,8 @@ class DownloadService : Service() {
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
-            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName, error is SocialPreviewUnavailable))
+            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
+                error is SocialPreviewUnavailable, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
@@ -306,7 +342,12 @@ class DownloadService : Service() {
         builder.addAction(Notification.Action.Builder(null, label, choicePendingIntent(url, id, quality, fileName)).build())
     }
 
-    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, chooseAgain: Boolean = false): Notification {
+    private fun errorNotification(
+        url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean,
+        socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, chooseAgain: Boolean = false,
+        audioExport: AudioExport = AudioExport.SOURCE, audioBitrate: AudioBitrate = AudioBitrate.K192,
+        subtitleLanguage: String? = null, subtitleAutomatic: Boolean = false, embedSubtitles: Boolean = false,
+    ): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
         retry.putExtra(EXTRA_USE_PREVIEW, usePreview).putExtra(EXTRA_VIDEO_ONLY, videoOnly)
@@ -314,6 +355,11 @@ class DownloadService : Service() {
         socialPreviewId?.let { retry.putExtra(EXTRA_SOCIAL_PREVIEW_ID, it) }
         selectedItems?.let { retry.putExtra(EXTRA_SELECTED_ITEMS, it) }
         fileName?.let { retry.putExtra(EXTRA_FILE_NAME, it) }
+        retry.putExtra(EXTRA_AUDIO_EXPORT, audioExport.name)
+        retry.putExtra(EXTRA_AUDIO_BITRATE, audioBitrate.kilobits)
+        subtitleLanguage?.let { retry.putExtra(EXTRA_SUBTITLE_LANGUAGE, it) }
+        retry.putExtra(EXTRA_SUBTITLE_AUTOMATIC, subtitleAutomatic)
+        retry.putExtra(EXTRA_EMBED_SUBTITLES, embedSubtitles)
         val pending = if (chooseAgain) choicePendingIntent(url, id, quality, fileName)
             else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
@@ -364,6 +410,11 @@ class DownloadService : Service() {
         const val EXTRA_SOCIAL_PREVIEW_ID = "social_preview_id"
         const val EXTRA_SELECTED_ITEMS = "selected_items"
         const val EXTRA_FILE_NAME = "file_name"
+        const val EXTRA_AUDIO_EXPORT = "audio_export"
+        const val EXTRA_AUDIO_BITRATE = "audio_bitrate"
+        const val EXTRA_SUBTITLE_LANGUAGE = "subtitle_language"
+        const val EXTRA_SUBTITLE_AUTOMATIC = "subtitle_automatic"
+        const val EXTRA_EMBED_SUBTITLES = "embed_subtitles"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
     }

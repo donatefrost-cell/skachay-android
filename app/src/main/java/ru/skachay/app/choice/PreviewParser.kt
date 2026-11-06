@@ -13,7 +13,10 @@ internal data class VideoPreview(
     val durationSeconds: Int?,
     val thumbnailUrl: String?,
     val formats: List<AvailableFormat>,
+    val subtitles: List<SubtitleTrack> = emptyList(),
 )
+
+internal data class SubtitleTrack(val language: String, val manual: Boolean, val automatic: Boolean)
 
 internal data class AvailableFormat(
     val id: String,
@@ -27,6 +30,7 @@ internal data class AvailableFormat(
     val language: String? = null,
     val isOriginalAudio: Boolean = false,
     val isVolumeBalanced: Boolean = false,
+    val videoBitrate: Int? = null,
 ) {
     val hasVideo: Boolean get() = videoCodec != null
     val hasAudio: Boolean get() = audioCodec != null
@@ -48,6 +52,8 @@ internal object PreviewParser {
                 var duration: Int? = null
                 var thumbnail: String? = null
                 var formats: List<AvailableFormat>? = null
+                var manualSubtitles = emptySet<String>()
+                var automaticSubtitles = emptySet<String>()
                 while (reader.hasNext()) {
                     when (reader.nextName()) {
                         "title" -> title = reader.stringValue()?.takeIf { it.isNotBlank() }?.take(300)
@@ -55,12 +61,17 @@ internal object PreviewParser {
                         "duration" -> duration = reader.positiveInt(Int.MAX_VALUE)
                         "thumbnail" -> thumbnail = reader.stringValue()?.takeIf(::safeThumbnail)
                         "formats" -> formats = readFormats(reader) ?: return null
+                        "subtitles" -> manualSubtitles = readSubtitleLanguages(reader)
+                        "automatic_captions" -> automaticSubtitles = readSubtitleLanguages(reader)
                         else -> reader.skipValue()
                     }
                 }
                 reader.endObject()
                 if (reader.peek() != JsonToken.END_DOCUMENT) return null
-                VideoPreview(title ?: "Видео", author, duration, thumbnail, formats ?: return null)
+                val subtitles = (manualSubtitles + automaticSubtitles).sorted().map { language ->
+                    SubtitleTrack(language, language in manualSubtitles, language in automaticSubtitles)
+                }
+                VideoPreview(title ?: "Видео", author, duration, thumbnail, formats ?: return null, subtitles)
             }
         } catch (_: IOException) {
             null
@@ -84,6 +95,19 @@ internal object PreviewParser {
         return formats.distinctBy { it.id }
     }
 
+    private fun readSubtitleLanguages(reader: JsonReader): Set<String> {
+        if (reader.peek() != JsonToken.BEGIN_OBJECT) { reader.skipValue(); return emptySet() }
+        val languages = linkedSetOf<String>()
+        reader.beginObject()
+        while (reader.hasNext()) {
+            val language = reader.nextName()
+            if (safeLanguage.matches(language) && languages.size < 100) languages += language
+            reader.skipValue()
+        }
+        reader.endObject()
+        return languages
+    }
+
     private fun readFormat(reader: JsonReader): AvailableFormat? {
         var id: String? = null
         var ext: String? = null
@@ -92,6 +116,8 @@ internal object PreviewParser {
         var height: Int? = null
         var fps: Int? = null
         var bitrate: Int? = null
+        var videoBitrate: Int? = null
+        var totalBitrate: Int? = null
         var size: Long? = null
         var approximateSize: Long? = null
         var language: String? = null
@@ -107,6 +133,8 @@ internal object PreviewParser {
                 "height" -> height = reader.positiveInt(8640)
                 "fps" -> fps = reader.positiveInt(240)
                 "abr" -> bitrate = reader.positiveInt(Int.MAX_VALUE)
+                "vbr" -> videoBitrate = reader.positiveInt(Int.MAX_VALUE)
+                "tbr" -> totalBitrate = reader.positiveInt(Int.MAX_VALUE)
                 "filesize" -> size = reader.positiveLong()
                 "filesize_approx" -> approximateSize = reader.positiveLong()
                 "language" -> language = reader.stringValue()?.takeIf(safeLanguage::matches)
@@ -122,7 +150,8 @@ internal object PreviewParser {
         if (video == null && extension == "webm" && audio?.lowercase() !in setOf("opus", "vorbis")) return null
         return AvailableFormat(safeFormatId, extension, video, audio, height, fps, bitrate, size ?: approximateSize,
             language, note?.contains("original", ignoreCase = true) == true,
-            note?.let { Regex("\\bDRC\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) } == true)
+            note?.let { Regex("\\bDRC\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) } == true,
+            videoBitrate ?: totalBitrate)
     }
 
     private fun JsonReader.stringValue(): String? = when (peek()) {

@@ -61,6 +61,8 @@ import ru.skachay.app.choice.CachedPreview
 import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreview
 import ru.skachay.app.choice.SocialPreviewStore
+import ru.skachay.app.download.AudioBitrate
+import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SavedFileName
@@ -94,6 +96,11 @@ class ChoiceActivity : ComponentActivity() {
                 var videoOnly by remember { mutableStateOf(false) }
                 var showFormats by remember { mutableStateOf(false) }
                 var showAudio by remember { mutableStateOf(false) }
+                var audioExport by remember { mutableStateOf(AudioExport.SOURCE) }
+                var audioBitrate by remember { mutableStateOf(AudioBitrate.K192) }
+                var subtitleLanguage by remember { mutableStateOf<String?>(null) }
+                var subtitleAutomatic by remember { mutableStateOf(false) }
+                var embedSubtitles by remember { mutableStateOf(false) }
                 var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
                 var fileName by remember(url) { mutableStateOf(intent.getStringExtra(DownloadService.EXTRA_FILE_NAME).orEmpty().take(256)) }
                 val cleanedFileName = remember(fileName) { SavedFileName.clean(fileName) }
@@ -161,24 +168,54 @@ class ChoiceActivity : ComponentActivity() {
                                     item { Text("Звук сохранится в файле OGG без изменения качества.", style = MaterialTheme.typography.bodyMedium) }
                                 }
                                 item { Text("Качество видео YouTube", style = MaterialTheme.typography.titleMedium) }
-                                items(Quality.entries) { option ->
-                                    ChoiceRow(if (option == Quality.AUTO) "Авто — до 720p" else "Лучшее — до 1080p", selected == null && quality == option) {
+                                items(listOf(Quality.AUTO, Quality.BEST) + Quality.presets) { option ->
+                                    ChoiceRow(option.label, selected == null && quality == option) {
                                         quality = option; selected = null; videoOnly = false
+                                    }
+                                }
+                                val subtitleTracks = (state as? PreviewState.Ready)?.cached?.preview?.subtitles.orEmpty()
+                                if (!showAudio && subtitleTracks.isNotEmpty()) {
+                                    item { Text("Субтитры (необязательно)", style = MaterialTheme.typography.titleMedium) }
+                                    item { Text("Помогают читать речь или смотреть без звука. По умолчанию выключены.") }
+                                    item { ChoiceRow("Без субтитров", subtitleLanguage == null) { subtitleLanguage = null } }
+                                    subtitleTracks.forEach { track ->
+                                        if (track.manual) item {
+                                            ChoiceRow("${track.language} — авторские", subtitleLanguage == track.language && !subtitleAutomatic) {
+                                                subtitleLanguage = track.language; subtitleAutomatic = false
+                                            }
+                                        }
+                                        if (track.automatic) item {
+                                            ChoiceRow("${track.language} — автоматические", subtitleLanguage == track.language && subtitleAutomatic) {
+                                                subtitleLanguage = track.language; subtitleAutomatic = true
+                                            }
+                                        }
+                                    }
+                                    item {
+                                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(
+                                            selected = embedSubtitles,
+                                            enabled = subtitleLanguage != null,
+                                            onClick = { embedSubtitles = !embedSubtitles },
+                                        ), verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(checked = embedSubtitles, enabled = subtitleLanguage != null, onCheckedChange = null)
+                                            Text("Встроить в видео (файл .srt тоже сохранится)")
+                                        }
                                     }
                                 }
                             }
                             val formats = (state as? PreviewState.Ready)?.cached?.preview?.formats.orEmpty()
                             if (showFormats && formats.isNotEmpty()) {
-                                val video = formats.filter { it.hasVideo }.sortedWith(compareByDescending<AvailableFormat> { it.height ?: 0 }.thenByDescending { it.fps ?: 0 })
+                                val video = formats.filter { it.hasVideo }.sortedWith(compareByDescending<AvailableFormat> { it.height ?: 0 }
+                                    .thenByDescending { it.fps ?: 0 }.thenByDescending { it.videoBitrate ?: 0 })
                                 val audio = formats.filter { !it.hasVideo && it.hasAudio }
                                     .sortedWith(compareByDescending<AvailableFormat> { it.isOriginalAudio }.thenByDescending { it.audioBitrate ?: 0 }.thenBy { it.isVolumeBalanced })
                                 item {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton(onClick = { showAudio = false }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "Видео" else "✓ Видео") }
-                                        TextButton(onClick = { showAudio = true }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "✓ Только звук" else "Только звук") }
+                                        TextButton(onClick = { showAudio = true; subtitleLanguage = null; embedSubtitles = false }, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text(if (showAudio) "✓ Только звук" else "Только звук") }
                                     }
                                 }
                                 if (!showAudio) {
+                                    item { Text("У каждого варианта показан доступный видеобитрейт; выберите нужный формат.") }
                                     items(video) { format ->
                                         Column {
                                             ChoiceRow(formatLabel(this@ChoiceActivity, format), selected?.id == format.id) { selected = format; videoOnly = false }
@@ -196,6 +233,18 @@ class ChoiceActivity : ComponentActivity() {
                                     items(audio) { format ->
                                         ChoiceRow(formatLabel(this@ChoiceActivity, format), selected?.id == format.id) { selected = format; videoOnly = false }
                                     }
+                                    if (selected?.let { !it.hasVideo && it.hasAudio } == true) {
+                                        item { Text("Формат аудио", style = MaterialTheme.typography.titleMedium) }
+                                        items(AudioExport.entries.toList()) { option ->
+                                            ChoiceRow(option.label, audioExport == option) { audioExport = option }
+                                        }
+                                        if (audioExport != AudioExport.SOURCE) {
+                                            item { Text("Битрейт при перекодировании", style = MaterialTheme.typography.titleMedium) }
+                                            items(AudioBitrate.entries.toList()) { option ->
+                                                ChoiceRow("${option.kilobits} кбит/с", audioBitrate == option) { audioBitrate = option }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -203,7 +252,10 @@ class ChoiceActivity : ComponentActivity() {
                             val social = state as? PreviewState.SocialReady
                             startDownload(this@ChoiceActivity, url, quality, usePreview = state is PreviewState.Ready,
                                 formatId = selected?.id, videoOnly = videoOnly, socialPreviewId = social?.cached?.id,
-                                selectedItems = social?.let { selectedItems.sorted().toIntArray() }, fileName = cleanedFileName)
+                                selectedItems = social?.let { selectedItems.sorted().toIntArray() }, fileName = cleanedFileName,
+                                audioExport = audioExport, audioBitrate = audioBitrate.kilobits,
+                                subtitleLanguage = subtitleLanguage, subtitleAutomatic = subtitleAutomatic,
+                                embedSubtitles = embedSubtitles)
                             finish()
                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp)) { Text("Скачать") }
                     }
@@ -269,6 +321,7 @@ private fun formatLabel(context: Context, format: AvailableFormat): String {
         parts += format.height?.let { "${it}p" } ?: "Видео"
         format.fps?.let { parts += "$it к/с" }
         format.videoCodec?.let { parts += it.substringBefore('.') }
+        format.videoBitrate?.let { parts += "≈$it Кбит/с" }
     } else {
         parts += "Аудио"
         format.language?.let {

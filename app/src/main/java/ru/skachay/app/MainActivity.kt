@@ -181,17 +181,21 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
         Option("Просто", settings.mode == UserMode.SIMPLE) { scope.launch { repository.selectMode(UserMode.SIMPLE) } }
         Option("Для опытных", settings.mode == UserMode.ADVANCED) { scope.launch { repository.selectMode(UserMode.ADVANCED) } }
         Text("Качество видео YouTube", style = MaterialTheme.typography.titleLarge)
-        Option("Авто — до 720p", settings.quality == Quality.AUTO) { scope.launch { repository.setQuality(Quality.AUTO) } }
-        Option("Лучшее — до 1080p", settings.quality == Quality.BEST) { scope.launch { repository.setQuality(Quality.BEST) } }
+        Option(Quality.AUTO.label, settings.quality == Quality.AUTO) { scope.launch { repository.setQuality(Quality.AUTO) } }
+        Option(Quality.BEST.label, settings.quality == Quality.BEST) { scope.launch { repository.setQuality(Quality.BEST) } }
         UpdateCheckButton()
+        EngineUpdateControl(settings.engineChannel, repository)
         if (settings.mode == UserMode.ADVANCED) {
+            Text("Предел качества видео YouTube", style = MaterialTheme.typography.titleLarge)
+            Quality.presets.forEach { preset ->
+                Option(preset.label, settings.quality == preset) { scope.launch { repository.setQuality(preset) } }
+            }
             Text("Режим «Поделиться»", style = MaterialTheme.typography.titleLarge)
             Option("Авто, в фоне", settings.shareMode == ShareMode.AUTO) { scope.launch { repository.setShareMode(ShareMode.AUTO) } }
             Option("С выбором", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
             Counter("Одновременных загрузок", settings.parallelDownloads, 1..4) { scope.launch { repository.setParallelDownloads(it) } }
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
             Counter("Повторов при сетевой ошибке", settings.retries, 0..5) { scope.launch { repository.setRetries(it) } }
-            EngineUpdateControl(settings.engineChannel, repository)
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
             StorageControls()
         }

@@ -24,6 +24,7 @@ class MediaStoreWriter(private val context: Context) {
             "audio/mp4" -> Environment.DIRECTORY_MUSIC to "m4a"
             "audio/mpeg" -> Environment.DIRECTORY_MUSIC to "mp3"
             "audio/ogg" -> Environment.DIRECTORY_MUSIC to "ogg"
+            "application/x-subrip" -> Environment.DIRECTORY_MOVIES to "srt"
             else -> throw IOException("Unsupported media type")
         }
         val name = SavedFileName.displayName(suggestedName, extension, itemNumber)
@@ -37,6 +38,7 @@ class MediaStoreWriter(private val context: Context) {
         val collection = when {
             mime.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             mime.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            mime == "application/x-subrip" -> MediaStore.Files.getContentUri("external")
             else -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         }
         val values = ContentValues().apply {

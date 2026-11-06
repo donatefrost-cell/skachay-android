@@ -94,6 +94,11 @@ internal object YtDlpRuntime {
         selected: AvailableFormat? = null,
         videoOnly: Boolean = false,
         retries: Int = 2,
+        audioExport: AudioExport = AudioExport.SOURCE,
+        audioBitrate: AudioBitrate = AudioBitrate.K192,
+        subtitleLanguage: String? = null,
+        subtitleAutomatic: Boolean = false,
+        embedSubtitles: Boolean = false,
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -101,7 +106,10 @@ internal object YtDlpRuntime {
             operation = {
                 runtimeLock.read {
                     onStage(DownloadStage.EXTRACTION)
-                    val request = YtDlpOptions.request(url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries)
+                    val request = YtDlpOptions.request(
+                        url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries,
+                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
+                    )
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
                         stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
                         onProgress(progress.takeIf { it in 0f..100f }?.toInt())
@@ -111,7 +119,8 @@ internal object YtDlpRuntime {
             update = { update(context, selectedChannel(context)) },
         )
         return directory.listFiles()?.firstOrNull {
-            it.isFile && it.name.startsWith("video.") && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl")
+            it.isFile && it.name.startsWith("video.") && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") &&
+                !it.name.endsWith(".srt", ignoreCase = true) && !it.name.endsWith(".vtt", ignoreCase = true)
         } ?: throw IOException("No media file produced")
     }
 }
