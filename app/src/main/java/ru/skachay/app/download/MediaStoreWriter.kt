@@ -13,7 +13,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class MediaStoreWriter(private val context: Context) {
-    fun save(source: File, mime: String): Uri {
+    fun save(source: File, mime: String, suggestedName: String? = null, itemNumber: Int? = null): Uri {
         val (directory, extension) = when (mime) {
             "image/jpeg" -> Environment.DIRECTORY_PICTURES to "jpg"
             "image/png" -> Environment.DIRECTORY_PICTURES to "png"
@@ -26,7 +26,8 @@ class MediaStoreWriter(private val context: Context) {
             "audio/ogg" -> Environment.DIRECTORY_MUSIC to "ogg"
             else -> throw IOException("Unsupported media type")
         }
-        val name = "Skachay_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}.$extension"
+        val name = SavedFileName.displayName(suggestedName, extension, itemNumber)
+            ?: "Skachay_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}.$extension"
         return if (Build.VERSION.SDK_INT >= 29) saveScoped(source, mime, directory, name)
         else saveLegacy(source, mime, directory, name)
     }
@@ -61,7 +62,7 @@ class MediaStoreWriter(private val context: Context) {
     private fun saveLegacy(source: File, mime: String, directory: String, name: String): Uri {
         val folder = File(Environment.getExternalStoragePublicDirectory(directory), "Скачай")
         if (!folder.isDirectory && !folder.mkdirs()) throw IOException("Could not create gallery folder")
-        val target = File(folder, name)
+        val target = SavedFileName.reserve(folder, name)
         try {
             source.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
             val latch = CountDownLatch(1)

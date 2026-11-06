@@ -14,6 +14,7 @@ internal fun startDownload(
     videoOnly: Boolean = false,
     socialPreviewId: String? = null,
     selectedItems: IntArray? = null,
+    fileName: String? = null,
 ) {
     val service = Intent(context, DownloadService::class.java).putExtra(DownloadService.EXTRA_URL, url)
     quality?.let { service.putExtra(DownloadService.EXTRA_QUALITY, it.name) }
@@ -22,6 +23,7 @@ internal fun startDownload(
     service.putExtra(DownloadService.EXTRA_VIDEO_ONLY, videoOnly)
     socialPreviewId?.let { service.putExtra(DownloadService.EXTRA_SOCIAL_PREVIEW_ID, it) }
     selectedItems?.let { service.putExtra(DownloadService.EXTRA_SELECTED_ITEMS, it) }
+    fileName?.let { service.putExtra(DownloadService.EXTRA_FILE_NAME, it) }
     try {
         context.startForegroundService(service)
         Toast.makeText(context, "Скачиваю… результат будет в уведомлении", Toast.LENGTH_LONG).show()

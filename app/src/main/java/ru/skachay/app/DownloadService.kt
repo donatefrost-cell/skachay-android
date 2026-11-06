@@ -17,6 +17,7 @@ import ru.skachay.app.download.MediaType
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.ResolvedMedia
+import ru.skachay.app.download.SavedFileName
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
@@ -75,7 +76,8 @@ class DownloadService : Service() {
         val url = shared
         val id = nextId.incrementAndGet()
         val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
-        startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality))
+        val fileName = SavedFileName.clean(intent?.getStringExtra(EXTRA_FILE_NAME))
+        startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality, fileName))
         synchronized(lock) {
             running++
             latestStartId = startId
@@ -91,7 +93,7 @@ class DownloadService : Service() {
                 executor.corePoolSize = settings.parallelDownloads
                 executor.execute {
                     try {
-                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly, socialPreviewId, selectedItems)
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName)
                     } finally {
                         finishJob()
                     }
@@ -101,7 +103,7 @@ class DownloadService : Service() {
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
-                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems))
+                notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName))
                 finishJob()
             }
         }
@@ -118,7 +120,7 @@ class DownloadService : Service() {
         }
     }
 
-    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?) {
+    private fun download(url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, fileName: String?) {
         val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
         val socialRequested = socialPreviewId != null || selectedItems != null
         val socialPreview = if (socialPreviewId != null && selectedItems != null) {
@@ -132,7 +134,7 @@ class DownloadService : Service() {
             else -> baseKey
         }
         if (!activeUrls.add(historyKey)) {
-            notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null, url, id, settings.quality))
+            notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null, url, id, settings.quality, fileName))
             return
         }
         val provider = providerFor(url)
@@ -146,7 +148,7 @@ class DownloadService : Service() {
             if (previous != null && exists(previous)) {
                 val type = contentResolver.getType(previous) ?: "*/*"
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.ALREADY, emptyMap())
-                notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type, url, id, settings.quality))
+                notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type, url, id, settings.quality, fileName))
                 return
             }
             directory = File(cacheDir, "job-${UUID.randomUUID()}")
@@ -156,7 +158,7 @@ class DownloadService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality))
+                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality, fileName))
                 }
             }
             timer.switchTo(DownloadStage.EXTRACTION)
@@ -167,7 +169,7 @@ class DownloadService : Service() {
             }
             val saved = if (items.isNotEmpty()) {
                 timer.switchTo(DownloadStage.TRANSFER)
-                saveResolvedItems(items, directory, settings.connections, timer, report)
+                saveResolvedItems(items, directory, settings.connections, timer, report, fileName)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
@@ -196,7 +198,7 @@ class DownloadService : Service() {
                 }
                 if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
                 timer.switchTo(DownloadStage.SAVING)
-                listOf(MediaStoreWriter(this).save(file, mime) to mime)
+                listOf(MediaStoreWriter(this).save(file, mime, fileName) to mime)
             }
             val (uri, mime) = saved.first()
             history.edit().putString(historyKey, uri.toString()).apply()
@@ -204,18 +206,18 @@ class DownloadService : Service() {
                 saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
             }.apply()
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish())
-            notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime, url, id, settings.quality))
+            notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime, url, id, settings.quality, fileName))
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
-            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, error is SocialPreviewUnavailable))
+            notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName, error is SocialPreviewUnavailable))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, timer: StageTimer, report: (Int?) -> Unit): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
             downloader.download(item.url, file, connections = connections, headers = item.headers) { received, total ->
@@ -234,7 +236,9 @@ class DownloadService : Service() {
         val saved = mutableListOf<Pair<Uri, String>>()
         try {
             timer.switchTo(DownloadStage.SAVING)
-            files.forEach { (file, mime) -> saved += MediaStoreWriter(this).save(file, mime) to mime }
+            files.forEachIndexed { index, (file, mime) ->
+                saved += MediaStoreWriter(this).save(file, mime, fileName, if (files.size > 1) index + 1 else null) to mime
+            }
         } catch (error: Exception) {
             saved.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
             throw error
@@ -256,7 +260,7 @@ class DownloadService : Service() {
         false
     }
 
-    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?): Notification {
+    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("Скачиваю…")
@@ -264,11 +268,11 @@ class DownloadService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, percent ?: 0, percent == null)
-        addChoiceAction(builder, url, id, quality)
+        addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
     }
 
-    private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?): Notification {
+    private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(title)
@@ -280,33 +284,35 @@ class DownloadService : Service() {
             val pending = PendingIntent.getActivity(this, uri.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.setContentIntent(pending)
         }
-        addChoiceAction(builder, url, id, quality)
+        addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
     }
 
-    private fun choicePendingIntent(url: String, id: Int, quality: Quality?): PendingIntent {
+    private fun choicePendingIntent(url: String, id: Int, quality: Quality?, fileName: String?): PendingIntent {
         val choice = Intent(this, ChoiceActivity::class.java).putExtra(EXTRA_URL, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         quality?.let { choice.putExtra(EXTRA_QUALITY, it.name) }
+        fileName?.let { choice.putExtra(EXTRA_FILE_NAME, it) }
         return PendingIntent.getActivity(this, id, choice, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun addChoiceAction(builder: Notification.Builder, url: String, id: Int, quality: Quality?) {
+    private fun addChoiceAction(builder: Notification.Builder, url: String, id: Int, quality: Quality?, fileName: String?) {
         val label = when {
             SourceType.isYouTube(url) -> "Выбрать качество"
             InstagramLink.supports(url) || TikTokLink.supports(url) -> "Выбрать файлы"
             else -> return
         }
-        builder.addAction(Notification.Action.Builder(null, label, choicePendingIntent(url, id, quality)).build())
+        builder.addAction(Notification.Action.Builder(null, label, choicePendingIntent(url, id, quality, fileName)).build())
     }
 
-    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, chooseAgain: Boolean = false): Notification {
+    private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, chooseAgain: Boolean = false): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
         retry.putExtra(EXTRA_USE_PREVIEW, usePreview).putExtra(EXTRA_VIDEO_ONLY, videoOnly)
         formatId?.let { retry.putExtra(EXTRA_FORMAT_ID, it) }
         socialPreviewId?.let { retry.putExtra(EXTRA_SOCIAL_PREVIEW_ID, it) }
         selectedItems?.let { retry.putExtra(EXTRA_SELECTED_ITEMS, it) }
-        val pending = if (chooseAgain) choicePendingIntent(url, id, quality)
+        fileName?.let { retry.putExtra(EXTRA_FILE_NAME, it) }
+        val pending = if (chooseAgain) choicePendingIntent(url, id, quality, fileName)
             else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
             chooseAgain -> "Сведения о выбранных файлах устарели. Откройте выбор и отметьте нужные файлы заново."
@@ -321,7 +327,7 @@ class DownloadService : Service() {
             .setStyle(Notification.BigTextStyle().bigText(message))
             .addAction(Notification.Action.Builder(null, if (chooseAgain) "Выбрать заново" else "Повторить", pending).build())
             .setAutoCancel(true)
-        if (!chooseAgain) addChoiceAction(builder, url, id, quality)
+        if (!chooseAgain) addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
     }
 
@@ -355,6 +361,7 @@ class DownloadService : Service() {
         const val EXTRA_VIDEO_ONLY = "video_only"
         const val EXTRA_SOCIAL_PREVIEW_ID = "social_preview_id"
         const val EXTRA_SELECTED_ITEMS = "selected_items"
+        const val EXTRA_FILE_NAME = "file_name"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
     }

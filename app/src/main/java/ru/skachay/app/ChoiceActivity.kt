@@ -27,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +63,7 @@ import ru.skachay.app.choice.SocialPreview
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.ResolvedMedia
+import ru.skachay.app.download.SavedFileName
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.settings.Quality
@@ -93,6 +95,9 @@ class ChoiceActivity : ComponentActivity() {
                 var showFormats by remember { mutableStateOf(false) }
                 var showAudio by remember { mutableStateOf(false) }
                 var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
+                var fileName by remember(url) { mutableStateOf(intent.getStringExtra(DownloadService.EXTRA_FILE_NAME).orEmpty().take(256)) }
+                val cleanedFileName = remember(fileName) { SavedFileName.clean(fileName) }
+                val invalidFileName = fileName.isNotBlank() && cleanedFileName == null
                 var state by remember(url) { mutableStateOf<PreviewState>(if (isYouTube || isSocial) PreviewState.Loading else PreviewState.NotNeeded) }
                 LaunchedEffect(url) {
                     if (state is PreviewState.Loading) {
@@ -141,6 +146,7 @@ class ChoiceActivity : ComponentActivity() {
                                             }
                                         }
                                     }
+                                    item { FileNameField(fileName, invalidFileName) { fileName = it } }
                                     itemsIndexed(previewState.cached.items) { index, media ->
                                         SocialChoiceRow(media, index, index in selectedItems) {
                                             selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
@@ -148,6 +154,7 @@ class ChoiceActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            if (state !is PreviewState.SocialReady) item { FileNameField(fileName, invalidFileName) { fileName = it } }
                             if (isYouTube) {
                                 selected?.let { format -> item { Text("Выбрано: ${formatLabel(this@ChoiceActivity, format)}", style = MaterialTheme.typography.bodyMedium) } }
                                 item { Text("Качество видео YouTube", style = MaterialTheme.typography.titleMedium) }
@@ -189,11 +196,11 @@ class ChoiceActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        Button(enabled = state !is PreviewState.Loading && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
+                        Button(enabled = state !is PreviewState.Loading && !invalidFileName && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
                             val social = state as? PreviewState.SocialReady
                             startDownload(this@ChoiceActivity, url, quality, usePreview = state is PreviewState.Ready,
                                 formatId = selected?.id, videoOnly = videoOnly, socialPreviewId = social?.cached?.id,
-                                selectedItems = social?.let { selectedItems.sorted().toIntArray() })
+                                selectedItems = social?.let { selectedItems.sorted().toIntArray() }, fileName = cleanedFileName)
                             finish()
                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp)) { Text("Скачать") }
                     }
@@ -201,6 +208,19 @@ class ChoiceActivity : ComponentActivity() {
             }
         }
     }
+}
+
+@Composable
+private fun FileNameField(value: String, invalid: Boolean, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onChange(it.take(256)) },
+        label = { Text("Имя файла (необязательно)") },
+        supportingText = { Text(if (invalid) "Введите подходящее имя." else "Имя применяется к новым загрузкам; расширение добавится автоматически.") },
+        isError = invalid,
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
