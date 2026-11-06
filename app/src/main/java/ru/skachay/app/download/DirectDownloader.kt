@@ -22,9 +22,11 @@ class DirectDownloader(
         destination: File,
         connections: Int = 8,
         headers: Map<String, String> = emptyMap(),
+        retries: Int = 2,
         onProgress: (Long, Long?) -> Unit = { _, _ -> },
     ): File {
         require(connections in 1..16)
+        require(retries in 0..5)
         val parent = requireNotNull(destination.absoluteFile.parentFile)
         require(parent.isDirectory)
         val temporary = File.createTempFile("download-", ".part", parent)
@@ -32,7 +34,7 @@ class DirectDownloader(
             val progress = Progress(onProgress)
             val probe = request(url, headers).header("Range", "bytes=0-0")
                 .header("Accept-Encoding", "identity").build()
-            val info = retry {
+            val info = retry(retries) {
                 client.newCall(probe).execute().use { response ->
                     if (response.code in setOf(400, 403, 405, 416, 501)) return@use null
                     if (!response.isSuccessful) throw HttpStatusException(response.code)
@@ -45,13 +47,13 @@ class DirectDownloader(
                 }
             }
             if (info == null || info.size < 2 || connections == 1) {
-                downloadWhole(url, temporary, headers, progress)
+                downloadWhole(url, temporary, headers, progress, retries)
             } else {
                 try {
-                    downloadRanges(url, temporary, info, connections, headers, progress)
+                    downloadRanges(url, temporary, info, connections, headers, progress, retries)
                 } catch (error: IOException) {
                     if (Thread.currentThread().isInterrupted) throw error
-                    downloadWhole(url, temporary, headers, progress)
+                    downloadWhole(url, temporary, headers, progress, retries)
                 }
             }
             Files.move(temporary.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
@@ -66,9 +68,9 @@ class DirectDownloader(
             .header("User-Agent", "Skachay/0.1 (Android; https://github.com/donatefrost-cell/skachay-android)")
             .apply { headers.forEach { (name, value) -> header(name, value) } }
 
-    private fun downloadWhole(url: String, destination: File, headers: Map<String, String>, progress: Progress) {
+    private fun downloadWhole(url: String, destination: File, headers: Map<String, String>, progress: Progress, retries: Int) {
         val request = request(url, headers).header("Accept-Encoding", "identity").build()
-        retry {
+        retry(retries) {
             client.newCall(request).execute().use { response ->
                 if (response.code != 200) throw HttpStatusException(response.code)
                 val body = response.body
@@ -80,7 +82,7 @@ class DirectDownloader(
         }
     }
 
-    private fun downloadRanges(url: String, destination: File, info: Probe, connections: Int, headers: Map<String, String>, progress: Progress) {
+    private fun downloadRanges(url: String, destination: File, info: Probe, connections: Int, headers: Map<String, String>, progress: Progress, retries: Int) {
         val size = info.size
         val count = minOf(connections.toLong(), size).toInt()
         val parts = List(count) { File.createTempFile("part-", ".tmp", destination.parentFile) }
@@ -91,7 +93,7 @@ class DirectDownloader(
                 val start = size * index / count
                 val end = size * (index + 1) / count - 1
                 Callable {
-                    retry {
+                    retry(retries) {
                         val completed = part.length()
                         if (completed > 0 && (info.validator == null || completed >= end - start + 1)) {
                             throw UnusableRangeException("Cannot safely resume this range")
@@ -141,14 +143,14 @@ class DirectDownloader(
     private class HttpStatusException(val code: Int) : IOException("HTTP $code")
     private class UnusableRangeException(message: String) : IOException(message)
 
-    private fun <T> retry(operation: () -> T): T {
+    private fun <T> retry(retries: Int, operation: () -> T): T {
         var attempt = 0
         while (true) {
             try {
                 return operation()
             } catch (error: IOException) {
                 val retryableStatus = error !is HttpStatusException || error.code == 408 || error.code == 429 || error.code in 500..599
-                if (attempt >= 2 || error is UnusableRangeException || !retryableStatus || Thread.currentThread().isInterrupted) throw error
+                if (attempt >= retries || error is UnusableRangeException || !retryableStatus || Thread.currentThread().isInterrupted) throw error
                 try {
                     retryDelay(250L shl attempt)
                 } catch (interrupted: InterruptedException) {

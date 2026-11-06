@@ -169,7 +169,7 @@ class DownloadService : Service() {
             }
             val saved = if (items.isNotEmpty()) {
                 timer.switchTo(DownloadStage.TRANSFER)
-                saveResolvedItems(items, directory, settings.connections, timer, report, fileName)
+                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
@@ -179,16 +179,16 @@ class DownloadService : Service() {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
                     } else null
                     val selected = formatId?.let { wanted -> cached?.preview?.formats?.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
-                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly)
+                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly, settings.retries)
                 } else {
                     val direct = File(directory, "direct.tmp")
                     timer.switchTo(DownloadStage.TRANSFER)
-                    downloader.download(url, direct, connections = settings.connections) { received, total ->
+                    downloader.download(url, direct, connections = settings.connections, retries = settings.retries) { received, total ->
                         report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
                     }
                     if (detect(direct, url) == null) {
                         direct.delete()
-                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo)
+                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, retries = settings.retries)
                     } else direct
                 }
                 val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
@@ -217,10 +217,10 @@ class DownloadService : Service() {
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
-            downloader.download(item.url, file, connections = connections, headers = item.headers) { received, total ->
+            downloader.download(item.url, file, connections = connections, headers = item.headers, retries = retries) { received, total ->
                 val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                 report(itemPercent?.let { (index * 100 + it) / items.size })
             }

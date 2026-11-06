@@ -24,6 +24,7 @@ class SettingsRepositoryTest {
             assertEquals(EngineChannel.STABLE, settings.engineChannel)
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
+            assertEquals(2, settings.retries)
         }
     }
 
@@ -35,6 +36,7 @@ class SettingsRepositoryTest {
             repository.setShareMode(ShareMode.CHOOSE)
             repository.setParallelDownloads(8)
             repository.setConnections(0)
+            repository.setRetries(99)
             repository.setEngineChannel(EngineChannel.NIGHTLY)
             val settings = repository.settings.first()
             assertTrue(settings.onboardingComplete)
@@ -43,6 +45,7 @@ class SettingsRepositoryTest {
             assertEquals(ShareMode.CHOOSE, settings.shareMode)
             assertEquals(4, settings.parallelDownloads)
             assertEquals(1, settings.connections)
+            assertEquals(5, settings.retries)
             assertEquals(EngineChannel.NIGHTLY, settings.engineChannel)
         }
     }
@@ -54,11 +57,13 @@ class SettingsRepositoryTest {
             repository.setShareMode(ShareMode.CHOOSE)
             repository.setParallelDownloads(4)
             repository.setConnections(16)
+            repository.setRetries(5)
             repository.selectMode(UserMode.SIMPLE)
             val settings = repository.settings.first()
             assertEquals(ShareMode.AUTO, settings.shareMode)
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
+            assertEquals(2, settings.retries)
         }
     }
 

@@ -12,5 +12,6 @@ data class AppSettings(
     val shareMode: ShareMode = ShareMode.AUTO,
     val parallelDownloads: Int = 2,
     val connections: Int = 8,
+    val retries: Int = 2,
     val engineChannel: EngineChannel = EngineChannel.STABLE,
 )

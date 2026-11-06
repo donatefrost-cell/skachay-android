@@ -12,11 +12,13 @@ internal object YtDlpOptions {
         infoJson: String? = null,
         selected: AvailableFormat? = null,
         videoOnly: Boolean = false,
+        retries: Int = 2,
     ): YoutubeDLRequest = YoutubeDLRequest(if (infoJson == null) listOf(url) else emptyList()).apply {
         addOption("--no-playlist")
         addOption("--no-mtime")
         addOption("--newline")
         addOption("--concurrent-fragments", 4)
+        addRetries(this, retries)
         infoJson?.let { addOption("--load-info-json", it) }
         val format = if (selected != null) {
             require(Regex("[A-Za-z0-9._-]{1,80}").matches(selected.id))
@@ -31,5 +33,12 @@ internal object YtDlpOptions {
         addOption("--format", format)
         addOption("--merge-output-format", "mp4")
         addOption("--output", output)
+    }
+
+    fun addRetries(request: YoutubeDLRequest, retries: Int) {
+        require(retries in 0..5)
+        request.addOption("--retries", retries)
+        request.addOption("--fragment-retries", retries)
+        request.addOption("--extractor-retries", retries)
     }
 }

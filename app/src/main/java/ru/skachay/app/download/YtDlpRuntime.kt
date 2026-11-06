@@ -69,11 +69,13 @@ internal object YtDlpRuntime {
 
     fun extractPreview(context: Context, url: String): String {
         initialize(context)
+        val retries = runBlocking { SettingsRepository.forContext(context).settings.first().retries }
         return RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
                     val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
                         .addOption("--no-playlist").addOption("--dump-single-json")
+                    YtDlpOptions.addRetries(request, retries)
                     YoutubeDL.execute(request).out
                 }
             },
@@ -91,6 +93,7 @@ internal object YtDlpRuntime {
         infoJson: File? = null,
         selected: AvailableFormat? = null,
         videoOnly: Boolean = false,
+        retries: Int = 2,
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -98,7 +101,7 @@ internal object YtDlpRuntime {
             operation = {
                 runtimeLock.read {
                     onStage(DownloadStage.EXTRACTION)
-                    val request = YtDlpOptions.request(url, template, quality, infoJson?.absolutePath, selected, videoOnly)
+                    val request = YtDlpOptions.request(url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries)
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
                         stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
                         onProgress(progress.takeIf { it in 0f..100f }?.toInt())

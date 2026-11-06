@@ -29,6 +29,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 shareMode = enumOrDefault(preferences[SHARE_MODE], ShareMode.AUTO),
                 parallelDownloads = (preferences[PARALLEL] ?: 2).coerceIn(1, 4),
                 connections = (preferences[CONNECTIONS] ?: 8).coerceIn(1, 16),
+                retries = (preferences[RETRIES] ?: 2).coerceIn(0, 5),
                 engineChannel = enumOrDefault(preferences[ENGINE_CHANNEL], EngineChannel.STABLE),
             )
         }
@@ -41,6 +42,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 it[SHARE_MODE] = ShareMode.AUTO.name
                 it[PARALLEL] = 2
                 it[CONNECTIONS] = 8
+                it[RETRIES] = 2
             }
         }
     }
@@ -49,6 +51,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setShareMode(mode: ShareMode) { store.edit { it[SHARE_MODE] = mode.name } }
     suspend fun setParallelDownloads(value: Int) { store.edit { it[PARALLEL] = value.coerceIn(1, 4) } }
     suspend fun setConnections(value: Int) { store.edit { it[CONNECTIONS] = value.coerceIn(1, 16) } }
+    suspend fun setRetries(value: Int) { store.edit { it[RETRIES] = value.coerceIn(0, 5) } }
     suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
 
     companion object {
@@ -58,6 +61,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val SHARE_MODE = stringPreferencesKey("share_mode")
         private val PARALLEL = intPreferencesKey("parallel_downloads")
         private val CONNECTIONS = intPreferencesKey("connections")
+        private val RETRIES = intPreferencesKey("retries")
         private val ENGINE_CHANNEL = stringPreferencesKey("engine_channel")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)

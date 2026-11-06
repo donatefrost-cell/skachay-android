@@ -190,6 +190,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             Option("С выбором", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
             Counter("Одновременных загрузок", settings.parallelDownloads, 1..4) { scope.launch { repository.setParallelDownloads(it) } }
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
+            Counter("Повторов при сетевой ошибке", settings.retries, 0..5) { scope.launch { repository.setRetries(it) } }
             EngineUpdateControl(settings.engineChannel, repository)
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
             StorageControls()

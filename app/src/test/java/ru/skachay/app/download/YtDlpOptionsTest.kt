@@ -8,6 +8,15 @@ import ru.skachay.app.choice.AvailableFormat
 
 class YtDlpOptionsTest {
     @Test
+    fun appliesConfiguredNetworkRetriesToVideoAndFragments() {
+        val args = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", retries = 3).buildCommand()
+        for (option in listOf("--retries", "--fragment-retries", "--extractor-retries")) {
+            val index = args.indexOf(option)
+            assertTrue(index >= 0 && args[index + 1] == "3")
+        }
+    }
+
+    @Test
     fun selectsCompatible720pWithoutEmbeddingOrReencoding() {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s").buildCommand()
         assertTrue(args.contains("--no-playlist"))
