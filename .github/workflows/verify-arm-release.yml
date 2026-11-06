@@ -28,7 +28,7 @@ jobs:
           set -euo pipefail
           adb="$ANDROID_HOME/platform-tools/adb"
           curl --fail --location --silent --show-error 'https://github.com/donatefrost-cell/skachay-android/releases/latest/download/app-release.apk' -o "$RUNNER_TEMP/app-release.apk"
-          "$ANDROID_HOME/emulator/emulator" -avd skachay-arm -no-window -no-audio -no-boot-anim -no-snapshot -accel off -gpu swiftshader_indirect -memory 2048 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          "$ANDROID_HOME/emulator/emulator" -avd skachay-arm -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -verbose -accel off -gpu swiftshader_indirect -memory 2048 -qemu -accel tcg > "$RUNNER_TEMP/emulator.log" 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
           booted=false
