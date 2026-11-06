@@ -3,6 +3,7 @@ package ru.skachay.app.settings
 enum class UserMode { SIMPLE, ADVANCED }
 enum class Quality { AUTO, BEST }
 enum class ShareMode { AUTO, CHOOSE }
+enum class EngineChannel { STABLE, NIGHTLY }
 
 data class AppSettings(
     val onboardingComplete: Boolean = false,
@@ -11,4 +12,5 @@ data class AppSettings(
     val shareMode: ShareMode = ShareMode.AUTO,
     val parallelDownloads: Int = 2,
     val connections: Int = 8,
+    val engineChannel: EngineChannel = EngineChannel.STABLE,
 )

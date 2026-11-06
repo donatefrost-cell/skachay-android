@@ -55,8 +55,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ru.skachay.app.download.EngineUpdateResult
+import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.settings.AppSettings
+import ru.skachay.app.settings.EngineChannel
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
@@ -184,17 +190,55 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             Option("С выбором", settings.shareMode == ShareMode.CHOOSE) { scope.launch { repository.setShareMode(ShareMode.CHOOSE) } }
             Counter("Одновременных загрузок", settings.parallelDownloads, 1..4) { scope.launch { repository.setParallelDownloads(it) } }
             Counter("Соединений на загрузку", settings.connections, 1..16) { scope.launch { repository.setConnections(it) } }
+            EngineUpdateControl(settings.engineChannel, repository)
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
         }
     }
 }
 
 @Composable
-private fun Option(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = selected, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected, onClick = null)
+private fun Option(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = selected, enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = selected, enabled = enabled, onClick = null)
         Text(label)
     }
+}
+
+@Composable
+private fun EngineUpdateControl(channel: EngineChannel, repository: SettingsRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updating by remember { mutableStateOf(false) }
+    var message by remember(channel) { mutableStateOf<String?>(null) }
+    Text("Движок скачивания", style = MaterialTheme.typography.titleLarge)
+    Option("Стабильная версия", channel == EngineChannel.STABLE, enabled = !updating) {
+        scope.launch { repository.setEngineChannel(EngineChannel.STABLE) }
+    }
+    Option("Ночная версия — новые исправления, возможны ошибки", channel == EngineChannel.NIGHTLY, enabled = !updating) {
+        scope.launch { repository.setEngineChannel(EngineChannel.NIGHTLY) }
+    }
+    Text("Выбранный канал применится при следующем обновлении или после нажатия кнопки.", style = MaterialTheme.typography.bodyMedium)
+    FilledTonalButton(onClick = {
+        updating = true
+        message = null
+        scope.launch {
+            try {
+                message = when (withContext(Dispatchers.IO) { YtDlpRuntime.updateNow(context.applicationContext, channel) }) {
+                    EngineUpdateResult.UPDATED -> "Движок скачивания обновлён."
+                    EngineUpdateResult.ALREADY_CURRENT -> "Установлена последняя версия выбранного канала."
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                message = "Не удалось обновить движок. Проверьте интернет и попробуйте снова."
+            } finally {
+                updating = false
+            }
+        }
+    }, enabled = !updating, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+        Text(if (updating) "Обновляю движок…" else "Обновить движок сейчас")
+    }
+    message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 }
 
 @Composable

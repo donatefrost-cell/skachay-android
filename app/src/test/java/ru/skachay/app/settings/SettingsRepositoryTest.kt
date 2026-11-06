@@ -3,6 +3,7 @@ package ru.skachay.app.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -20,6 +21,7 @@ class SettingsRepositoryTest {
             assertEquals(UserMode.SIMPLE, settings.mode)
             assertEquals(Quality.AUTO, settings.quality)
             assertEquals(ShareMode.AUTO, settings.shareMode)
+            assertEquals(EngineChannel.STABLE, settings.engineChannel)
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
         }
@@ -33,6 +35,7 @@ class SettingsRepositoryTest {
             repository.setShareMode(ShareMode.CHOOSE)
             repository.setParallelDownloads(8)
             repository.setConnections(0)
+            repository.setEngineChannel(EngineChannel.NIGHTLY)
             val settings = repository.settings.first()
             assertTrue(settings.onboardingComplete)
             assertEquals(UserMode.ADVANCED, settings.mode)
@@ -40,6 +43,7 @@ class SettingsRepositoryTest {
             assertEquals(ShareMode.CHOOSE, settings.shareMode)
             assertEquals(4, settings.parallelDownloads)
             assertEquals(1, settings.connections)
+            assertEquals(EngineChannel.NIGHTLY, settings.engineChannel)
         }
     }
 
@@ -56,6 +60,13 @@ class SettingsRepositoryTest {
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
         }
+    }
+
+    @Test
+    fun unknownUpdateChannelFallsBackToStable() = runBlocking {
+        val store = MemoryStore()
+        store.updateData { preferences -> preferences.toMutablePreferences().apply { this[stringPreferencesKey("engine_channel")] = "unknown" } }
+        assertEquals(EngineChannel.STABLE, SettingsRepository(store).settings.first().engineChannel)
     }
 
     private suspend fun withRepository(block: suspend (SettingsRepository) -> Unit) {
