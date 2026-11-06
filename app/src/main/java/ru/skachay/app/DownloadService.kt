@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -59,6 +60,9 @@ class DownloadService : Service() {
     private val tiktok = TikTokResolver()
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
+    private val notificationLargeIcon by lazy {
+        BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_art, BitmapFactory.Options().apply { inSampleSize = 4 })
+    }
     private val nextId = AtomicInteger(100)
     private val lock = Any()
     private var running = 0
@@ -300,7 +304,8 @@ class DownloadService : Service() {
 
     private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setLargeIcon(notificationLargeIcon)
             .setContentTitle("Скачиваю…")
             .setContentText(if (percent == null) "Пожалуйста, подождите" else "$percent %")
             .setOngoing(true)
@@ -312,7 +317,8 @@ class DownloadService : Service() {
 
     private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setLargeIcon(notificationLargeIcon)
             .setContentTitle(title)
             .setContentText(message)
             .setAutoCancel(true)
@@ -369,7 +375,8 @@ class DownloadService : Service() {
             else -> "Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."
         }
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setLargeIcon(notificationLargeIcon)
             .setContentTitle("Не получилось скачать")
             .setContentText("Проверьте ссылку и попробуйте ещё раз")
             .setStyle(Notification.BigTextStyle().bigText(message))
