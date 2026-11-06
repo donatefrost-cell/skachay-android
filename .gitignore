@@ -2,9 +2,11 @@
 .kotlin/
 .idea/
 .tools/
+private-signing/
 build/
 **/build/
 local.properties
 *.iml
 *.jks
 *.keystore
+*.p12

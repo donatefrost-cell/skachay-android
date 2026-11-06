@@ -74,4 +74,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
+            --title "Скачай $version" \
+            --notes "Скачайте файл app-release.apk и откройте его на телефоне с Android 8 или новее."

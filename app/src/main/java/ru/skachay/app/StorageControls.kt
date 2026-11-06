@@ -29,11 +29,15 @@ internal fun StorageControls() {
     var refresh by remember { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf(false) }
     val sizes by produceState<Pair<Long, Long>?>(initialValue = null, refresh) {
-        value = withContext(Dispatchers.IO) { StorageUsage.bytes(context.filesDir) to StorageUsage.bytes(context.cacheDir) }
+        value = withContext(Dispatchers.IO) {
+            val all = StorageUsage.bytes(context.dataDir)
+            val cache = StorageUsage.bytes(context.cacheDir)
+            (all - cache).coerceAtLeast(0) to cache
+        }
     }
     Text("Память и история", style = MaterialTheme.typography.titleLarge)
     sizes?.let { (files, cache) ->
-        Text("Файлы приложения: ${Formatter.formatShortFileSize(context, files)}")
+        Text("Данные приложения: ${Formatter.formatShortFileSize(context, files)}")
         Text("Временный кэш: ${Formatter.formatShortFileSize(context, cache)}")
         Text("Сохранённые в галерее файлы здесь не учитываются.", style = MaterialTheme.typography.bodyMedium)
     } ?: Text("Подсчитываю занятое место…")
