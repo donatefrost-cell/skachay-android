@@ -73,13 +73,13 @@ class DownloadService : Service() {
             return START_NOT_STICKY
         }
         val url = shared
-        startForeground(FOREGROUND_ID, progressNotification(null))
+        val id = nextId.incrementAndGet()
+        val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
+        startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality))
         synchronized(lock) {
             running++
             latestStartId = startId
         }
-        val id = nextId.incrementAndGet()
-        val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
         val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
         val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
@@ -132,7 +132,7 @@ class DownloadService : Service() {
             else -> baseKey
         }
         if (!activeUrls.add(historyKey)) {
-            notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null))
+            notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null, url, id, settings.quality))
             return
         }
         val provider = providerFor(url)
@@ -146,7 +146,7 @@ class DownloadService : Service() {
             if (previous != null && exists(previous)) {
                 val type = contentResolver.getType(previous) ?: "*/*"
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.ALREADY, emptyMap())
-                notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type))
+                notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type, url, id, settings.quality))
                 return
             }
             directory = File(cacheDir, "job-${UUID.randomUUID()}")
@@ -156,7 +156,7 @@ class DownloadService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    notifySafely(FOREGROUND_ID, progressNotification(percent))
+                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality))
                 }
             }
             timer.switchTo(DownloadStage.EXTRACTION)
@@ -204,7 +204,7 @@ class DownloadService : Service() {
                 saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
             }.apply()
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish())
-            notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime))
+            notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime, url, id, settings.quality))
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
@@ -256,16 +256,19 @@ class DownloadService : Service() {
         false
     }
 
-    private fun progressNotification(percent: Int?): Notification = Notification.Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
-        .setContentTitle("Скачиваю…")
-        .setContentText(if (percent == null) "Пожалуйста, подождите" else "$percent %")
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setProgress(100, percent ?: 0, percent == null)
-        .build()
+    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?): Notification {
+        val builder = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Скачиваю…")
+            .setContentText(if (percent == null) "Пожалуйста, подождите" else "$percent %")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, percent ?: 0, percent == null)
+        addChoiceAction(builder, url, id, quality)
+        return builder.build()
+    }
 
-    private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?): Notification {
+    private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(title)
@@ -277,7 +280,23 @@ class DownloadService : Service() {
             val pending = PendingIntent.getActivity(this, uri.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.setContentIntent(pending)
         }
+        addChoiceAction(builder, url, id, quality)
         return builder.build()
+    }
+
+    private fun choicePendingIntent(url: String, id: Int, quality: Quality?): PendingIntent {
+        val choice = Intent(this, ChoiceActivity::class.java).putExtra(EXTRA_URL, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        quality?.let { choice.putExtra(EXTRA_QUALITY, it.name) }
+        return PendingIntent.getActivity(this, id, choice, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun addChoiceAction(builder: Notification.Builder, url: String, id: Int, quality: Quality?) {
+        val label = when {
+            SourceType.isYouTube(url) -> "Выбрать качество"
+            InstagramLink.supports(url) || TikTokLink.supports(url) -> "Выбрать файлы"
+            else -> return
+        }
+        builder.addAction(Notification.Action.Builder(null, label, choicePendingIntent(url, id, quality)).build())
     }
 
     private fun errorNotification(url: String, id: Int, quality: Quality?, usePreview: Boolean, formatId: String?, videoOnly: Boolean, socialPreviewId: String?, selectedItems: IntArray?, chooseAgain: Boolean = false): Notification {
@@ -287,25 +306,23 @@ class DownloadService : Service() {
         formatId?.let { retry.putExtra(EXTRA_FORMAT_ID, it) }
         socialPreviewId?.let { retry.putExtra(EXTRA_SOCIAL_PREVIEW_ID, it) }
         selectedItems?.let { retry.putExtra(EXTRA_SELECTED_ITEMS, it) }
-        val pending = if (chooseAgain) {
-            val choice = Intent(this, ChoiceActivity::class.java).putExtra(EXTRA_URL, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            quality?.let { choice.putExtra(EXTRA_QUALITY, it.name) }
-            PendingIntent.getActivity(this, id, choice, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        } else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pending = if (chooseAgain) choicePendingIntent(url, id, quality)
+            else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = when {
             chooseAgain -> "Сведения о выбранных файлах устарели. Откройте выбор и отметьте нужные файлы заново."
             InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
             TikTokLink.supports(url) -> "Публикация может быть закрыта или недоступна. Проверьте ссылку и попробуйте ещё раз."
             else -> "Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."
         }
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle("Не получилось скачать")
             .setContentText("Проверьте ссылку и попробуйте ещё раз")
             .setStyle(Notification.BigTextStyle().bigText(message))
             .addAction(Notification.Action.Builder(null, if (chooseAgain) "Выбрать заново" else "Повторить", pending).build())
             .setAutoCancel(true)
-            .build()
+        if (!chooseAgain) addChoiceAction(builder, url, id, quality)
+        return builder.build()
     }
 
     private fun notifySafely(id: Int, notification: Notification) {
