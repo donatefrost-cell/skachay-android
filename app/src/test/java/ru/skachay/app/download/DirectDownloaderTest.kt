@@ -120,6 +120,37 @@ class DirectDownloaderTest {
     }
 
     @Test
+    fun downloadsWholeFileWhenServerRejectsRangeProbe() {
+        val content = ByteArray(2048) { (it % 239).toByte() }
+        for (status in listOf(400, 403, 405, 416, 501)) {
+            val ranges = AtomicInteger()
+            val whole = AtomicInteger()
+            val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            server.createContext("/file") { exchange ->
+                if (exchange.requestHeaders.getFirst("Range") != null) {
+                    ranges.incrementAndGet()
+                    exchange.sendResponseHeaders(status, -1)
+                } else {
+                    whole.incrementAndGet()
+                    exchange.sendResponseHeaders(200, content.size.toLong())
+                    exchange.responseBody.use { it.write(content) }
+                }
+                exchange.close()
+            }
+            server.start()
+            try {
+                val output = temp.newFile("whole-$status.bin")
+                DirectDownloader(OkHttpClient(), retryDelay = { }).download("http://127.0.0.1:${server.address.port}/file", output)
+                assertArrayEquals(content, output.readBytes())
+                assertEquals("Range probe for HTTP $status", 1, ranges.get())
+                assertEquals("Whole download for HTTP $status", 1, whole.get())
+            } finally {
+                server.stop(0)
+            }
+        }
+    }
+
+    @Test
     fun reportsProgressUpToTheCompleteSize() {
         val content = ByteArray(2048) { (it % 239).toByte() }
         val updates = Collections.synchronizedList(mutableListOf<Long>())

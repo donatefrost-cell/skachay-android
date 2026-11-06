@@ -180,17 +180,14 @@ class DownloadService : Service() {
                     YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly)
                 } else {
                     val direct = File(directory, "direct.tmp")
-                    try {
-                        timer.switchTo(DownloadStage.TRANSFER)
-                        downloader.download(url, direct, connections = settings.connections) { received, total ->
-                            report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
-                        }
-                        if (detect(direct, url) == null) throw IOException("Not a direct media link")
-                        direct
-                    } catch (_: IOException) {
+                    timer.switchTo(DownloadStage.TRANSFER)
+                    downloader.download(url, direct, connections = settings.connections) { received, total ->
+                        report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
+                    }
+                    if (detect(direct, url) == null) {
                         direct.delete()
                         YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo)
-                    }
+                    } else direct
                 }
                 val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
                     ?: throw IOException("Not a supported media file")

@@ -34,6 +34,7 @@ class DirectDownloader(
                 .header("Accept-Encoding", "identity").build()
             val info = retry {
                 client.newCall(probe).execute().use { response ->
+                    if (response.code in setOf(400, 403, 405, 416, 501)) return@use null
                     if (!response.isSuccessful) throw HttpStatusException(response.code)
                     if (response.code == 206) {
                         val match = Regex("bytes 0-0/(\\d+)").matchEntire(response.header("Content-Range").orEmpty())
