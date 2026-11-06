@@ -1,7 +1,7 @@
 package ru.skachay.app.download
 
 object MediaType {
-    fun detect(header: ByteArray, url: String): String? {
+    fun detect(header: ByteArray, url: String, audioOnly: Boolean = false): String? {
         fun starts(vararg bytes: Int): Boolean =
             header.size >= bytes.size && bytes.indices.all { header[it].toInt() and 0xff == bytes[it] }
         fun textAt(offset: Int, text: String): Boolean =
@@ -12,8 +12,8 @@ object MediaType {
             starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) -> "image/png"
             textAt(0, "GIF87a") || textAt(0, "GIF89a") -> "image/gif"
             textAt(0, "RIFF") && textAt(8, "WEBP") -> "image/webp"
-            textAt(4, "ftyp") -> if (url.substringBefore('?').endsWith(".m4a", true)) "audio/mp4" else "video/mp4"
-            starts(0x1a, 0x45, 0xdf, 0xa3) -> "video/webm"
+            textAt(4, "ftyp") -> if (audioOnly || url.substringBefore('?').endsWith(".m4a", true)) "audio/mp4" else "video/mp4"
+            starts(0x1a, 0x45, 0xdf, 0xa3) -> if (audioOnly) null else "video/webm"
             textAt(0, "ID3") -> "audio/mpeg"
             textAt(0, "OggS") -> "audio/ogg"
             else -> null

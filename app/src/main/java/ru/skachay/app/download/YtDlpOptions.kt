@@ -31,6 +31,10 @@ internal object YtDlpOptions {
             "bv[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/b"
         }
         addOption("--format", format)
+        if (selected != null && !selected.hasVideo && selected.hasAudio && selected.extension == "webm") {
+            addOption("--extract-audio")
+            addOption("--audio-format", "best")
+        }
         addOption("--merge-output-format", "mp4")
         addOption("--output", output)
     }

@@ -118,7 +118,8 @@ internal object PreviewParser {
         reader.endObject()
         val safeFormatId = id?.takeIf(safeId::matches) ?: return null
         val extension = ext?.takeIf { it in setOf("mp4", "webm", "m4a") } ?: return null
-        if (drm || (video == null && (audio == null || extension != "m4a"))) return null
+        if (drm || (video == null && audio == null)) return null
+        if (video == null && extension == "webm" && audio?.lowercase() !in setOf("opus", "vorbis")) return null
         return AvailableFormat(safeFormatId, extension, video, audio, height, fps, bitrate, size ?: approximateSize,
             language, note?.contains("original", ignoreCase = true) == true,
             note?.let { Regex("\\bDRC\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) } == true)

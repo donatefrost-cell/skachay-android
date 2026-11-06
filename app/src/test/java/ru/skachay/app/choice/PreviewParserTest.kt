@@ -7,6 +7,15 @@ import org.junit.Test
 
 class PreviewParserTest {
     @Test
+    fun offersWebmAudioFormats() {
+        val json = """{"title":"Видео","formats":[{"format_id":"251","ext":"webm","vcodec":"none","acodec":"opus","abr":128}]}"""
+        val formats = PreviewParser.parse(json)!!.formats
+        assertEquals(1, formats.size)
+        assertEquals("251", formats.single().id)
+        assertEquals("opus", formats.single().audioCodec)
+    }
+
+    @Test
     fun describesRealVideoAndAudioFormatsAndRejectsUnsafeIds() {
         val json = """{"title":"Пример","uploader":"Автор","duration":75,"thumbnail":"https://img.example/preview.jpg","formats":[
           {"format_id":"137","ext":"mp4","vcodec":"avc1.640028","acodec":"none","height":1080,"fps":30,"filesize":1234567},

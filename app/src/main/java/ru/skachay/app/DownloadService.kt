@@ -172,6 +172,7 @@ class DownloadService : Service() {
                 saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
+                var audioOnly = false
                 val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
                     if (InstagramLink.supports(url) && !RecipeRegistry.current.instagram.ytDlpEnabled) throw IOException("Instagram fallback disabled")
                     if (TikTokLink.supports(url) && !RecipeRegistry.current.tiktok.ytDlpEnabled) throw IOException("TikTok fallback disabled")
@@ -179,6 +180,7 @@ class DownloadService : Service() {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
                     } else null
                     val selected = formatId?.let { wanted -> cached?.preview?.formats?.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
+                    audioOnly = selected != null && !selected.hasVideo && selected.hasAudio
                     YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected, videoOnly, settings.retries)
                 } else {
                     val direct = File(directory, "direct.tmp")
@@ -191,7 +193,7 @@ class DownloadService : Service() {
                         YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, retries = settings.retries)
                     } else direct
                 }
-                val mime = detect(file, if (file.name == "direct.tmp") url else file.name)
+                val mime = detect(file, if (file.name == "direct.tmp") url else file.name, audioOnly)
                     ?: throw IOException("Not a supported media file")
                 if (InstagramLink.isVideoPost(url) && !mime.startsWith("video/")) {
                     throw IOException("Expected video")
@@ -224,7 +226,7 @@ class DownloadService : Service() {
                 val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                 report(itemPercent?.let { (index * 100 + it) / items.size })
             }
-            val mime = detect(file, item.url) ?: throw IOException("Not a supported media file")
+            val mime = detect(file, item.url, audioOnly = item.type == ResolvedMedia.Kind.AUDIO) ?: throw IOException("Not a supported media file")
             val expected = when (item.type) {
                 ResolvedMedia.Kind.IMAGE -> "image/"
                 ResolvedMedia.Kind.VIDEO -> "video/"
@@ -246,10 +248,10 @@ class DownloadService : Service() {
         return saved
     }
 
-    private fun detect(file: File, url: String): String? {
+    private fun detect(file: File, url: String, audioOnly: Boolean = false): String? {
         val header = ByteArray(32)
         val length = file.inputStream().use { it.read(header).coerceAtLeast(0) }
-        return MediaType.detect(header.copyOf(length), url)
+        return MediaType.detect(header.copyOf(length), url, audioOnly)
     }
 
     private fun exists(uri: Uri): Boolean = try {

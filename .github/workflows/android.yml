@@ -76,6 +76,16 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          ## Как установить
+
+          1. Скачайте файл **app-release.apk** на телефон с Android 8 или новее.
+          2. Откройте файл. Если телефон попросит разрешить установку из браузера или проводника, включите разрешение и вернитесь к файлу.
+          3. Откройте «Скачай» и выберите режим «Просто».
+          4. В YouTube, Instagram или TikTok нажмите «Поделиться» и выберите «Скачай». Результат появится в уведомлении и галерее.
+
+          Сведения о проверенных возможностях и ограничениях находятся в [описании проекта](https://github.com/donatefrost-cell/skachay-android).
+          NOTES
           gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
             --title "Скачай $version" \
-            --notes "Скачайте файл app-release.apk и откройте его на телефоне с Android 8 или новее."
+            --notes-file "$RUNNER_TEMP/release-notes.md"

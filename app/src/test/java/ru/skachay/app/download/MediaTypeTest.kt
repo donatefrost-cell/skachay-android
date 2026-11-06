@@ -19,6 +19,16 @@ class MediaTypeTest {
     }
 
     @Test
+    fun recognisesSelectedAudioInsideWebmAndMp4Containers() {
+        val webm = byteArrayOf(0x1a, 0x45, 0xdf.toByte(), 0xa3.toByte())
+        val mp4 = byteArrayOf(0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70)
+        assertNull(MediaType.detect(webm, "video.webm", audioOnly = true))
+        assertEquals("video/webm", MediaType.detect(webm, "video.webm"))
+        assertEquals("audio/mp4", MediaType.detect(mp4, "video.mp4", audioOnly = true))
+        assertEquals("audio/ogg", MediaType.detect("OggS".toByteArray(), "audio.opus", audioOnly = true))
+    }
+
+    @Test
     fun rejectsAWebPageInsteadOfSavingItAsMedia() {
         assertNull(MediaType.detect("<html>".toByteArray(), "https://example.com/a.mp4"))
     }

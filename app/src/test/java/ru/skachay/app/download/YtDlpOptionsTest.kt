@@ -63,4 +63,12 @@ class YtDlpOptionsTest {
         assertFalse(withoutAudio.any { it.contains("bestaudio") })
         assertFalse(audioOnly.any { it.contains("bestaudio") })
     }
+
+    @Test
+    fun remuxesSelectedWebmAudioIntoAnAndroidCompatibleAudioContainer() {
+        val audio = AvailableFormat("251", "webm", null, "opus", null, null, 128, null)
+        val args = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", selected = audio).buildCommand()
+        assertTrue(args.contains("--extract-audio"))
+        assertTrue(args.indexOf("--audio-format").let { it >= 0 && args[it + 1] == "best" })
+    }
 }

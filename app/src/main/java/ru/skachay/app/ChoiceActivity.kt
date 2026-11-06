@@ -157,6 +157,9 @@ class ChoiceActivity : ComponentActivity() {
                             if (state !is PreviewState.SocialReady) item { FileNameField(fileName, invalidFileName) { fileName = it } }
                             if (isYouTube) {
                                 selected?.let { format -> item { Text("Выбрано: ${formatLabel(this@ChoiceActivity, format)}", style = MaterialTheme.typography.bodyMedium) } }
+                                selected?.takeIf { !it.hasVideo && it.extension == "webm" }?.let {
+                                    item { Text("Звук сохранится в файле OGG без изменения качества.", style = MaterialTheme.typography.bodyMedium) }
+                                }
                                 item { Text("Качество видео YouTube", style = MaterialTheme.typography.titleMedium) }
                                 items(Quality.entries) { option ->
                                     ChoiceRow(if (option == Quality.AUTO) "Авто — до 720p" else "Лучшее — до 1080p", selected == null && quality == option) {
