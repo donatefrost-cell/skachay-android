@@ -64,8 +64,7 @@ android {
             engineVersion = "0.0.1-alpha16"
             targetVariants.add("debug")
             dependencies {
-                implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-                implementation("androidx.compose.ui:ui-tooling")
+                implementation("androidx.compose.ui:ui-tooling:1.12.1")
                 implementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
             }
         }
