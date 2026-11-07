@@ -31,6 +31,8 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 connections = (preferences[CONNECTIONS] ?: 8).coerceIn(1, 16),
                 retries = (preferences[RETRIES] ?: 2).coerceIn(0, 5),
                 engineChannel = enumOrDefault(preferences[ENGINE_CHANNEL], EngineChannel.STABLE),
+                largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
+                wifiOnly = preferences[WIFI_ONLY] ?: false,
             )
         }
 
@@ -38,6 +40,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         store.edit {
             it[MODE] = mode.name
             it[ONBOARDING] = true
+            if (!it.contains(LARGE_MODE)) it[LARGE_MODE] = mode == UserMode.SIMPLE
             if (mode == UserMode.SIMPLE) {
                 it[SHARE_MODE] = ShareMode.AUTO.name
                 it[PARALLEL] = 2
@@ -53,6 +56,8 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setConnections(value: Int) { store.edit { it[CONNECTIONS] = value.coerceIn(1, 16) } }
     suspend fun setRetries(value: Int) { store.edit { it[RETRIES] = value.coerceIn(0, 5) } }
     suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
+    suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
+    suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
 
     companion object {
         private val ONBOARDING = booleanPreferencesKey("onboarding_complete")
@@ -63,6 +68,8 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val CONNECTIONS = intPreferencesKey("connections")
         private val RETRIES = intPreferencesKey("retries")
         private val ENGINE_CHANNEL = stringPreferencesKey("engine_channel")
+        private val LARGE_MODE = booleanPreferencesKey("large_mode")
+        private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 

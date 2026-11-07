@@ -1,7 +1,9 @@
 package ru.skachay.app.diagnostics
 
 internal enum class DownloadStage(val label: String) {
+    RUNTIME_START("Подготовка движка"),
     EXTRACTION("Получение сведений"),
+    FIRST_BYTE("Ожидание первого байта"),
     TRANSFER("Загрузка"),
     MERGE("Объединение"),
     SAVING("Сохранение"),
@@ -27,6 +29,11 @@ internal class StageTimer(private val now: () -> Long) {
         current?.let { durations[it] = (durations[it] ?: 0) + (time - started).coerceAtLeast(0) }
         current = null
         return durations.toMap()
+    }
+
+    @Synchronized
+    fun record(stage: DownloadStage, millis: Long) {
+        durations[stage] = millis.coerceAtLeast(0)
     }
 }
 

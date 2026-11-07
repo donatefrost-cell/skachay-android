@@ -6,7 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -25,6 +28,8 @@ import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
 import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.download.YouTubeDirectTransfer
+import ru.skachay.app.download.YouTubeFormatSelector
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -44,6 +49,12 @@ import ru.skachay.app.diagnostics.DiagnosticStatus
 import ru.skachay.app.diagnostics.DiagnosticsStore
 import ru.skachay.app.diagnostics.DownloadStage
 import ru.skachay.app.diagnostics.StageTimer
+import ru.skachay.app.diagnostics.TransferStats
+import ru.skachay.app.diagnostics.TransferSnapshot
+import ru.skachay.app.diagnostics.YtDlpProgress
+import ru.skachay.app.diagnostics.formatBytes
+import ru.skachay.app.diagnostics.formatDuration
+import ru.skachay.app.diagnostics.formatSpeed
 import ru.skachay.app.diagnostics.diagnosticError
 import ru.skachay.app.diagnostics.providerFor
 import ru.skachay.app.choice.PreviewStore
@@ -51,6 +62,7 @@ import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.SocialSelection
 
 private class SocialPreviewUnavailable : IOException()
+private class WifiOnlyRequiredException : IOException()
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
@@ -61,7 +73,14 @@ class DownloadService : Service() {
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val notificationLargeIcon by lazy {
-        BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_art, BitmapFactory.Options().apply { inSampleSize = 4 })
+        Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(0xFF534AB7.toInt())
+            getDrawable(R.drawable.ic_launcher_foreground)?.apply {
+                setBounds(0, 0, 108, 108)
+                draw(canvas)
+            }
+        }
     }
     private val nextId = AtomicInteger(100)
     private val lock = Any()
@@ -70,7 +89,7 @@ class DownloadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        notifications.createNotificationChannel(NotificationChannel(CHANNEL, "Скачивание", NotificationManager.IMPORTANCE_LOW))
+        notifications.createNotificationChannel(NotificationChannel(CHANNEL, "Загрузки", NotificationManager.IMPORTANCE_LOW))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -118,7 +137,7 @@ class DownloadService : Service() {
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
                 notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
                     audioExport = audioExport, audioBitrate = audioBitrate, subtitleLanguage = subtitleLanguage,
-                    subtitleAutomatic = subtitleAutomatic, embedSubtitles = embedSubtitles))
+                    subtitleAutomatic = subtitleAutomatic, embedSubtitles = embedSubtitles, reason = diagnosticError(provider, error)))
                 finishJob()
             }
         }
@@ -165,8 +184,10 @@ class DownloadService : Service() {
         val provider = providerFor(url)
         val job = DiagnosticsStore.begin(this, provider)
         val timer = StageTimer(SystemClock::elapsedRealtime)
+        val transferStats = TransferStats(SystemClock::elapsedRealtime)
         var directory: File? = null
         try {
+            if (settings.wifiOnly && !wifiAvailable()) throw WifiOnlyRequiredException()
             if (socialRequested && chosenItems == null) throw SocialPreviewUnavailable()
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
             val previous = history.getString(historyKey, null)?.let(Uri::parse)
@@ -183,8 +204,14 @@ class DownloadService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality, fileName))
+                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality, fileName, transferStats.snapshot()))
                 }
+            }
+            val detailedReport: (YtDlpProgress) -> Unit = { progress ->
+                val sample = transferStats.update(progress.receivedBytes, progress.totalBytes)
+                val percent = sample.totalBytes?.takeIf { it > 0 }
+                    ?.let { (sample.bytesReceived * 100 / it).coerceIn(0, 100).toInt() } ?: progress.percent
+                report(percent)
             }
             timer.switchTo(DownloadStage.EXTRACTION)
             val items = chosenItems ?: when {
@@ -194,29 +221,73 @@ class DownloadService : Service() {
             }
             val saved = if (items.isNotEmpty()) {
                 timer.switchTo(DownloadStage.TRANSFER)
-                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName)
+                transferStats.start()
+                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName, transferStats)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 var audioOnly = false
-                val file = if (SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url)) {
-                    if (InstagramLink.supports(url) && !RecipeRegistry.current.instagram.ytDlpEnabled) throw IOException("Instagram fallback disabled")
-                    if (TikTokLink.supports(url) && !RecipeRegistry.current.tiktok.ytDlpEnabled) throw IOException("TikTok fallback disabled")
-                    val cached = if (SourceType.isYouTube(url) && (usePreview || formatId != null)) {
+                if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
+                    throw IOException("Не удалось получить прямую ссылку на файл. Проверьте публикацию и повторите попытку.")
+                }
+                val file = if (SourceType.isYouTube(url)) {
+                    val extractionStarted = SystemClock.elapsedRealtime()
+                    val cached = if (usePreview || formatId != null) {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
-                    } else null
-                    val selected = formatId?.let { wanted -> cached?.preview?.formats?.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
+                    } else PreviewStore.getOrFetch(this, url)
+                    val extractionElapsed = (SystemClock.elapsedRealtime() - extractionStarted).coerceAtLeast(0)
+                    timer.record(DownloadStage.EXTRACTION, PreviewStore.extractionDuration(url) ?: extractionElapsed)
+                    timer.record(DownloadStage.RUNTIME_START, YtDlpRuntime.startupDurationMs() ?: 0L)
+                    val selected = formatId?.let { wanted -> cached.preview.formats.firstOrNull { it.id == wanted } ?: throw IOException("Selected format unavailable") }
                     audioOnly = selected != null && !selected.hasVideo && selected.hasAudio
-                    YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached?.file, selected,
-                        videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles)
+                    val streams = if (audioExport == AudioExport.SOURCE && subtitleLanguage == null) {
+                        if (selected != null) YouTubeFormatSelector.selected(cached.preview, selected, videoOnly)
+                        else YouTubeFormatSelector.automatic(cached.preview, settings.quality)
+                    } else null
+                    if (streams != null) {
+                        transferStats.start()
+                        try {
+                            YouTubeDirectTransfer.download(
+                                context = this,
+                                streams = streams,
+                                directory = directory,
+                                connections = settings.connections,
+                                retries = settings.retries,
+                                onStage = timer::switchTo,
+                                onProgress = { received, total ->
+                                    val sample = transferStats.update(received, total)
+                                    val percent = sample.totalBytes?.takeIf { it > 0 }
+                                        ?.let { (sample.bytesReceived * 100 / it).coerceIn(0, 100).toInt() }
+                                    report(percent)
+                                },
+                                onFirstByte = { transferStats.markFirstByte() },
+                            )
+                        } catch (error: IOException) {
+                            if (Thread.currentThread().isInterrupted) throw error
+                            directory.listFiles()?.filter { it.name.startsWith("youtube-") || it.name == "video.mp4" }?.forEach(File::delete)
+                            transferStats.start()
+                            YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached.file, selected,
+                                videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
+                                onDetailedProgress = detailedReport)
+                        }
+                    } else {
+                        transferStats.start()
+                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached.file, selected,
+                            videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
+                            onDetailedProgress = detailedReport)
+                    }
                 } else {
                     val direct = File(directory, "direct.tmp")
                     timer.switchTo(DownloadStage.TRANSFER)
+                    transferStats.start()
                     downloader.download(url, direct, connections = settings.connections, retries = settings.retries) { received, total ->
+                        transferStats.update(received, total)
                         report(total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() })
                     }
                     if (detect(direct, url) == null) {
                         direct.delete()
-                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, retries = settings.retries)
+                        transferStats.start()
+                        YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo,
+                            retries = settings.retries, onDetailedProgress = detailedReport)
                     } else direct
                 }
                 val mime = detect(file, if (file.name == "direct.tmp") url else file.name, audioOnly)
@@ -246,23 +317,30 @@ class DownloadService : Service() {
             getSharedPreferences("download_files", MODE_PRIVATE).edit().apply {
                 saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
             }.apply()
-            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish())
+            transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
+            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish(),
+                transfer = transferStats.snapshot(), vpnActive = vpnActive())
             notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime, url, id, settings.quality, fileName))
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
-            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), diagnosticError(provider, error))
+            transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
+            val friendlyError = if (error is WifiOnlyRequiredException) "Подключитесь к Wi-Fi и повторите загрузку." else diagnosticError(provider, error)
+            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), friendlyError,
+                transfer = transferStats.snapshot(), vpnActive = vpnActive())
             notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
-                error is SocialPreviewUnavailable, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles))
+                error is SocialPreviewUnavailable, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
+                if (error is SocialPreviewUnavailable) null else friendlyError))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?, transferStats: TransferStats): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
             downloader.download(item.url, file, connections = connections, headers = item.headers, retries = retries) { received, total ->
+                val sample = transferStats.update(received, total)
                 val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                 report(itemPercent?.let { (index * 100 + it) / items.size })
             }
@@ -302,25 +380,35 @@ class DownloadService : Service() {
         false
     }
 
-    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
+    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?, transfer: TransferSnapshot? = null): Notification {
+        val text = buildList {
+            percent?.let { add("$it%") }
+            transfer?.averageBytesPerSecond?.takeIf { it > 0 }?.let { add(formatSpeed(it)) }
+            if (transfer?.bytesReceived != null && transfer.totalBytes != null) {
+                add("${formatBytes(transfer.bytesReceived)} из ${formatBytes(transfer.totalBytes)}")
+            }
+            transfer?.remainingMillis?.let { add("ещё ${formatDuration(it)}") }
+        }.joinToString(" · ").ifBlank { "Получаю сведения о публикации…" }
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
-            .setContentTitle("Скачиваю…")
-            .setContentText(if (percent == null) "Пожалуйста, подождите" else "$percent %")
+            .setContentTitle(if (percent == null) "Получаю сведения…" else "Скачиваю…")
+            .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, percent ?: 0, percent == null)
+            .setColor(0xFF534AB7.toInt())
         addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
     }
 
     private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
             .setContentTitle(title)
             .setContentText(message)
+            .setColor(0xFF534AB7.toInt())
             .setAutoCancel(true)
         if (uri != null && mime != null) {
             val open = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
@@ -353,6 +441,7 @@ class DownloadService : Service() {
         socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, chooseAgain: Boolean = false,
         audioExport: AudioExport = AudioExport.SOURCE, audioBitrate: AudioBitrate = AudioBitrate.K192,
         subtitleLanguage: String? = null, subtitleAutomatic: Boolean = false, embedSubtitles: Boolean = false,
+        reason: String? = null,
     ): Notification {
         val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
         quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
@@ -368,18 +457,19 @@ class DownloadService : Service() {
         retry.putExtra(EXTRA_EMBED_SUBTITLES, embedSubtitles)
         val pending = if (chooseAgain) choicePendingIntent(url, id, quality, fileName)
             else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val message = when {
+        val message = reason ?: when {
             chooseAgain -> "Сведения о выбранных файлах устарели. Откройте выбор и отметьте нужные файлы заново."
             InstagramLink.supports(url) -> "Публикация может быть закрыта или удалена. Проверьте ссылку; возможно, Instagram изменился."
             TikTokLink.supports(url) -> "Публикация может быть закрыта или недоступна. Проверьте ссылку и попробуйте ещё раз."
             else -> "Не получилось скачать. Проверьте, что файл доступен, и попробуйте ещё раз."
         }
         val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
             .setContentTitle("Не получилось скачать")
-            .setContentText("Проверьте ссылку и попробуйте ещё раз")
+            .setContentText(message)
             .setStyle(Notification.BigTextStyle().bigText(message))
+            .setColor(0xFF534AB7.toInt())
             .addAction(Notification.Action.Builder(null, if (chooseAgain) "Выбрать заново" else "Повторить", pending).build())
             .setAutoCancel(true)
         if (!chooseAgain) addChoiceAction(builder, url, id, quality, fileName)
@@ -391,6 +481,19 @@ class DownloadService : Service() {
             notifications.notify(id, notification)
         } catch (_: SecurityException) {
             // Android can hide notifications if the user declined permission.
+        }
+    }
+
+    private fun vpnActive(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val network = manager.activeNetwork ?: return false
+        return manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+
+    private fun wifiAvailable(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        return manager.allNetworks.any { network ->
+            manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         }
     }
 

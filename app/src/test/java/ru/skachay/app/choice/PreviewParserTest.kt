@@ -47,4 +47,21 @@ class PreviewParserTest {
         assertEquals("Видео", preview.title)
         assertEquals("18", preview.formats.single().id)
     }
+
+    @Test
+    fun preservesSafeDirectStreamUrlsAndExtractorHeaders() {
+        val json = """{"title":"Видео","formats":[{"format_id":"137","ext":"mp4","vcodec":"avc1","acodec":"none","url":"https://cdn.example/video?sig=abc","http_headers":{"Referer":"https://www.youtube.com/","User-Agent":"Skachay test"}}]}"""
+        val format = PreviewParser.parse(json)!!.formats.single()
+        assertEquals("https://cdn.example/video?sig=abc", format.directUrl)
+        assertEquals("https://www.youtube.com/", format.httpHeaders["Referer"])
+        assertEquals("Skachay test", format.httpHeaders["User-Agent"])
+    }
+
+    @Test
+    fun ignoresUnsafeDirectStreamUrlsAndHeaders() {
+        val json = """{"title":"Видео","formats":[{"format_id":"137","ext":"mp4","vcodec":"avc1","url":"http://cdn.example/video","http_headers":{"Authorization":"secret"}}]}"""
+        val format = PreviewParser.parse(json)!!.formats.single()
+        assertNull(format.directUrl)
+        assertEquals(emptyMap<String, String>(), format.httpHeaders)
+    }
 }

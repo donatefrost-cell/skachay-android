@@ -16,6 +16,8 @@ import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.diagnostics.DownloadStage
 import ru.skachay.app.diagnostics.stageFromYtDlpOutput
+import ru.skachay.app.diagnostics.YtDlpProgress
+import ru.skachay.app.diagnostics.YtDlpProgressParser
 import ru.skachay.app.choice.AvailableFormat
 
 internal enum class EngineUpdateResult { UPDATED, ALREADY_CURRENT }
@@ -24,16 +26,21 @@ internal object YtDlpRuntime {
     private val initialization = Any()
     private val runtimeLock = ReentrantReadWriteLock()
     @Volatile private var initialized = false
+    @Volatile private var initializationDurationMs: Long? = null
     private const val DAY_MS = 24 * 60 * 60 * 1000L
 
     fun initialize(context: Context) {
         synchronized(initialization) {
             if (initialized) return
+            val started = android.os.SystemClock.elapsedRealtime()
             YoutubeDL.init(context.applicationContext)
             FFmpeg.init(context.applicationContext)
+            initializationDurationMs = (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
             initialized = true
         }
     }
+
+    fun startupDurationMs(): Long? = initializationDurationMs
 
     fun updateIfDue(context: Context) {
         val prefs = context.getSharedPreferences("engine", Context.MODE_PRIVATE)
@@ -74,7 +81,7 @@ internal object YtDlpRuntime {
             operation = {
                 runtimeLock.read {
                     val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
-                        .addOption("--no-playlist").addOption("--dump-single-json")
+                        .addOption("--no-playlist").addOption("--skip-download").addOption("--dump-single-json")
                     YtDlpOptions.addRetries(request, retries)
                     YoutubeDL.execute(request).out
                 }
@@ -99,6 +106,7 @@ internal object YtDlpRuntime {
         subtitleLanguage: String? = null,
         subtitleAutomatic: Boolean = false,
         embedSubtitles: Boolean = false,
+        onDetailedProgress: (YtDlpProgress) -> Unit = {},
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -112,7 +120,9 @@ internal object YtDlpRuntime {
                     )
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
                         stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
-                        onProgress(progress.takeIf { it in 0f..100f }?.toInt())
+                        val detailed = YtDlpProgressParser.parse(line.orEmpty())
+                        if (detailed != null) onDetailedProgress(detailed)
+                        else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
                     }
                 }
             },

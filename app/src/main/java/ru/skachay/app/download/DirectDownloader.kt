@@ -23,6 +23,7 @@ class DirectDownloader(
         connections: Int = 8,
         headers: Map<String, String> = emptyMap(),
         retries: Int = 2,
+        onFirstByte: () -> Unit = {},
         onProgress: (Long, Long?) -> Unit = { _, _ -> },
     ): File {
         require(connections in 1..16)
@@ -31,7 +32,7 @@ class DirectDownloader(
         require(parent.isDirectory)
         val temporary = File.createTempFile("download-", ".part", parent)
         try {
-            val progress = Progress(onProgress)
+            val progress = Progress(onProgress, onFirstByte)
             val probe = request(url, headers).header("Range", "bytes=0-0")
                 .header("Accept-Encoding", "identity").build()
             val info = retry(retries) {
@@ -84,14 +85,14 @@ class DirectDownloader(
 
     private fun downloadRanges(url: String, destination: File, info: Probe, connections: Int, headers: Map<String, String>, progress: Progress, retries: Int) {
         val size = info.size
-        val count = minOf(connections.toLong(), size).toInt()
-        val parts = List(count) { File.createTempFile("part-", ".tmp", destination.parentFile) }
-        val executor = Executors.newFixedThreadPool(count)
+        val segments = rangeSegments(size, connections)
+        val parts = List(segments.size) { File.createTempFile("part-", ".tmp", destination.parentFile) }
+        val executor = Executors.newFixedThreadPool(minOf(connections, parts.size))
         try {
             progress.reset(size)
             val tasks = parts.mapIndexed { index, part ->
-                val start = size * index / count
-                val end = size * (index + 1) / count - 1
+                val start = segments[index].first
+                val end = segments[index].last
                 Callable {
                     retry(retries) {
                         val completed = part.length()
@@ -172,24 +173,43 @@ class DirectDownloader(
         }
     }
 
-    private class Progress(private val listener: (Long, Long?) -> Unit) {
+    private class Progress(private val listener: (Long, Long?) -> Unit, private val firstByte: () -> Unit) {
         private var current = 0L
         private var reported = 0L
         private var total: Long? = null
+        private var sawFirstByte = false
 
         @Synchronized
         fun reset(size: Long?) {
             current = 0
             total = size
+            sawFirstByte = false
         }
 
         @Synchronized
         fun advance(bytes: Int) {
             current += bytes
+            if (!sawFirstByte) {
+                sawFirstByte = true
+                firstByte()
+            }
             if (current >= reported) {
                 reported = current
                 listener(current, total)
             }
         }
+    }
+}
+
+internal fun rangeSegments(size: Long, connections: Int, targetChunkBytes: Long = 8L * 1024 * 1024): List<LongRange> {
+    require(size > 0)
+    require(connections in 1..16)
+    require(targetChunkBytes in 4L * 1024 * 1024..10L * 1024 * 1024)
+    val count = if (size <= targetChunkBytes) minOf(size, connections.toLong()).toInt()
+    else ((size + targetChunkBytes - 1) / targetChunkBytes).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    return List(count) { index ->
+        val first = size * index / count
+        val exclusiveEnd = size * (index + 1) / count
+        first until exclusiveEnd
     }
 }

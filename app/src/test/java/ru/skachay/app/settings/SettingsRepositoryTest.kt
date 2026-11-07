@@ -25,6 +25,8 @@ class SettingsRepositoryTest {
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
             assertEquals(2, settings.retries)
+            assertTrue(settings.largeMode)
+            assertFalse(settings.wifiOnly)
         }
     }
 
@@ -38,6 +40,8 @@ class SettingsRepositoryTest {
             repository.setConnections(0)
             repository.setRetries(99)
             repository.setEngineChannel(EngineChannel.NIGHTLY)
+            repository.setLargeMode(false)
+            repository.setWifiOnly(true)
             val settings = repository.settings.first()
             assertTrue(settings.onboardingComplete)
             assertEquals(UserMode.ADVANCED, settings.mode)
@@ -47,6 +51,8 @@ class SettingsRepositoryTest {
             assertEquals(1, settings.connections)
             assertEquals(5, settings.retries)
             assertEquals(EngineChannel.NIGHTLY, settings.engineChannel)
+            assertFalse(settings.largeMode)
+            assertTrue(settings.wifiOnly)
         }
     }
 

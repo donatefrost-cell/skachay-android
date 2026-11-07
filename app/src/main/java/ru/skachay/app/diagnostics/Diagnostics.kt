@@ -25,6 +25,11 @@ internal data class DiagnosticEntry(
     val timestamp: Long = 0,
     val lastError: String? = null,
     val durations: Map<DownloadStage, Long> = emptyMap(),
+    val bytesReceived: Long? = null,
+    val bytesTotal: Long? = null,
+    val averageBytesPerSecond: Long? = null,
+    val remainingMillis: Long? = null,
+    val vpnActive: Boolean? = null,
 )
 
 internal fun providerFor(url: String): DownloadProvider = when {
@@ -58,5 +63,25 @@ internal fun diagnosticLog(entries: List<DiagnosticEntry>): String = buildString
             val duration = entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) } ?: "нет данных"
             appendLine("${stage.label}: $duration")
         }
+        entry.bytesReceived?.let { received ->
+            val size = entry.bytesTotal?.let { " из ${formatBytes(it)}" }.orEmpty()
+            appendLine("Получено: ${formatBytes(received)}$size")
+        }
+        entry.averageBytesPerSecond?.let { appendLine("Средняя скорость: ${formatSpeed(it)}") }
+        entry.remainingMillis?.let { appendLine("Осталось: ${formatDuration(it)}") }
+        entry.vpnActive?.let { appendLine("VPN: ${if (it) "активен" else "не активен"}") }
     }
 }.trimEnd()
+
+internal fun formatSpeed(bytesPerSecond: Long): String = String.format(
+    Locale.forLanguageTag("ru"), "%.1f МБ/с", bytesPerSecond.coerceAtLeast(0) / 1_048_576.0,
+)
+
+internal fun formatDuration(millis: Long): String {
+    val seconds = (millis.coerceAtLeast(0) + 999) / 1_000
+    return if (seconds >= 60) "${seconds / 60} мин ${seconds % 60} с" else "$seconds с"
+}
+
+internal fun formatBytes(bytes: Long): String = String.format(
+    Locale.forLanguageTag("ru"), "%.1f МБ", bytes.coerceAtLeast(0) / 1_048_576.0,
+)

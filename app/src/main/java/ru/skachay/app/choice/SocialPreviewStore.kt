@@ -7,6 +7,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.TikTokLink
@@ -14,6 +15,7 @@ import ru.skachay.app.download.TikTokResolver
 
 internal object SocialPreviewStore {
     private val lock = Any()
+    private val prefetcher = Executors.newSingleThreadExecutor()
     private const val MAX_BYTES = 1_000_000L
 
     fun getOrFetch(context: Context, url: String): SocialPreview = synchronized(lock) {
@@ -39,6 +41,13 @@ internal object SocialPreviewStore {
             temp.delete()
         }
         preview
+    }
+
+    fun prefetch(context: Context, url: String) {
+        val appContext = context.applicationContext
+        prefetcher.execute {
+            try { getOrFetch(appContext, url) } catch (_: Exception) { }
+        }
     }
 
     fun load(context: Context, url: String, id: String? = null): SocialPreview? {

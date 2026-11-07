@@ -5,6 +5,7 @@ import android.text.format.Formatter
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,13 +36,19 @@ internal fun StorageControls() {
             (all - cache).coerceAtLeast(0) to cache
         }
     }
-    Text("Память и история", style = MaterialTheme.typography.titleLarge)
     sizes?.let { (files, cache) ->
         Text("Данные приложения: ${Formatter.formatShortFileSize(context, files)}")
         Text("Временный кэш: ${Formatter.formatShortFileSize(context, cache)}")
         Text("Сохранённые в галерее файлы здесь не учитываются.", style = MaterialTheme.typography.bodyMedium)
     } ?: Text("Подсчитываю занятое место…")
-    FilledTonalButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Очистить историю") }
+    FilledTonalButton(
+        onClick = { confirm = true },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) { Text("Очистить историю") }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },

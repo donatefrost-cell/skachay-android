@@ -15,6 +15,7 @@ internal object DiagnosticsStore {
             putString(key(provider, "status"), DiagnosticStatus.RUNNING.name)
             putLong(key(provider, "timestamp"), System.currentTimeMillis())
             DownloadStage.entries.forEach { remove(key(provider, it.name)) }
+            listOf("bytes", "total", "speed", "remaining", "vpn").forEach { remove(key(provider, it)) }
         }.apply()
         return job
     }
@@ -27,6 +28,8 @@ internal object DiagnosticsStore {
         status: DiagnosticStatus,
         durations: Map<DownloadStage, Long>,
         error: String? = null,
+        transfer: TransferSnapshot? = null,
+        vpnActive: Boolean? = null,
     ) {
         val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         if (prefs.getString(key(provider, "job"), null) != job) return
@@ -34,6 +37,14 @@ internal object DiagnosticsStore {
             putString(key(provider, "status"), status.name)
             if (error != null) putString(key(provider, "error"), error)
             durations.forEach { (stage, millis) -> putLong(key(provider, stage.name), millis) }
+            transfer?.let {
+                putLong(key(provider, "bytes"), it.bytesReceived)
+                it.totalBytes?.let { total -> putLong(key(provider, "total"), total) }
+                it.averageBytesPerSecond?.let { speed -> putLong(key(provider, "speed"), speed) }
+                it.remainingMillis?.let { remaining -> putLong(key(provider, "remaining"), remaining) }
+                it.firstByteMillis?.let { firstByte -> putLong(key(provider, DownloadStage.FIRST_BYTE.name), firstByte) }
+            }
+            vpnActive?.let { putBoolean(key(provider, "vpn"), it) }
         }.apply()
     }
 
@@ -58,8 +69,15 @@ internal object DiagnosticsStore {
             val durations = DownloadStage.entries.mapNotNull { stage ->
                 if (prefs.contains(key(provider, stage.name))) stage to prefs.getLong(key(provider, stage.name), 0) else null
             }.toMap()
-            DiagnosticEntry(provider, status, prefs.getLong(key(provider, "timestamp"), 0),
-                prefs.getString(key(provider, "error"), null), durations)
+            DiagnosticEntry(
+                provider, status, prefs.getLong(key(provider, "timestamp"), 0),
+                prefs.getString(key(provider, "error"), null), durations,
+                prefs.getLong(key(provider, "bytes"), -1L).takeIf { prefs.contains(key(provider, "bytes")) },
+                prefs.getLong(key(provider, "total"), -1L).takeIf { prefs.contains(key(provider, "total")) },
+                prefs.getLong(key(provider, "speed"), -1L).takeIf { prefs.contains(key(provider, "speed")) },
+                prefs.getLong(key(provider, "remaining"), -1L).takeIf { prefs.contains(key(provider, "remaining")) },
+                prefs.getBoolean(key(provider, "vpn"), false).takeIf { prefs.contains(key(provider, "vpn")) },
+            )
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,8 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import java.util.Locale
+import ru.skachay.app.SkachayTheme
 import ru.skachay.app.SharedUrl
 import ru.skachay.app.startDownload
 
@@ -63,6 +66,13 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                             ?: "нет данных"
                         Text("${stage.label}: $duration", style = MaterialTheme.typography.bodyMedium)
                     }
+                    entry.bytesReceived?.let { received ->
+                        val total = entry.bytesTotal?.let { " из ${android.text.format.Formatter.formatShortFileSize(context, it)}" }.orEmpty()
+                        Text("Получено: ${android.text.format.Formatter.formatShortFileSize(context, received)}$total")
+                    }
+                    entry.averageBytesPerSecond?.let { Text("Средняя скорость: ${formatSpeed(it)}") }
+                    entry.remainingMillis?.let { Text("Осталось: ${formatDuration(it)}") }
+                    entry.vpnActive?.let { Text("VPN: ${if (it) "активен" else "не активен"}") }
                 }
             }
         }
@@ -78,4 +88,13 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
             Toast.makeText(context, "Журнал скопирован", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скопировать лог") }
     }
+}
+
+@Preview(name = "Диагностика · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
+@Preview(name = "Диагностика · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, showSystemUi = true)
+@Preview(name = "Диагностика · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
+@Preview(name = "Диагностика · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
+@Composable
+private fun DiagnosticsScreenPreview() {
+    SkachayTheme { DiagnosticsScreen(onBack = {}) }
 }

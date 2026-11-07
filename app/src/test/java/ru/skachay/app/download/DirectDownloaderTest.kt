@@ -20,6 +20,17 @@ class DirectDownloaderTest {
     val temp = TemporaryFolder()
 
     @Test
+    fun splitsLargeFilesIntoBoundedRangeChunks() {
+        val size = 100L * 1024 * 1024 + 3
+        val segments = rangeSegments(size, connections = 8)
+        assertTrue(segments.size > 8)
+        assertEquals(0L, segments.first().first)
+        assertEquals(size - 1, segments.last().last)
+        assertTrue(segments.all { it.last - it.first + 1 <= 8L * 1024 * 1024 })
+        assertTrue(segments.zipWithNext().all { (left, right) -> left.last + 1 == right.first })
+    }
+
+    @Test
     fun retriesTemporaryServerFailuresWithBackoff() {
         val attempts = AtomicInteger()
         val waits = mutableListOf<Long>()

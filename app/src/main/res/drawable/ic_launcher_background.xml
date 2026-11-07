@@ -1,7 +1,3 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient
-        android:angle="315"
-        android:endColor="#0D064C"
-        android:startColor="#220877"
-        android:type="linear" />
+    <solid android:color="@color/launcher_background" />
 </shape>

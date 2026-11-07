@@ -4,6 +4,9 @@ import android.content.Context
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import android.os.SystemClock
 import ru.skachay.app.download.YtDlpRuntime
 
 internal data class CachedPreview(val file: File, val preview: VideoPreview)
@@ -19,13 +22,17 @@ internal object PreviewLifetime {
 
 internal object PreviewStore {
     private val lock = Any()
+    private val prefetcher = Executors.newSingleThreadExecutor()
+    private val extractionTimes = ConcurrentHashMap<String, Long>()
     private const val MAX_CACHE_BYTES = 32_000_000L
 
     fun getOrFetch(context: Context, url: String): CachedPreview = synchronized(lock) {
         load(context, url)?.let { return it }
         val directory = directory(context)
         directory.listFiles()?.filter { PreviewLifetime.isExpired(System.currentTimeMillis() - it.lastModified()) }?.forEach(File::delete)
+        val started = SystemClock.elapsedRealtime()
         val json = YtDlpRuntime.extractPreview(context, url)
+        extractionTimes[key(url)] = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
         val preview = PreviewParser.parse(json) ?: throw IOException("Invalid media metadata")
         val file = file(context, url)
         val temporary = File.createTempFile("preview-", ".tmp", directory)
@@ -38,6 +45,15 @@ internal object PreviewStore {
         }
         CachedPreview(file, preview)
     }
+
+    fun prefetch(context: Context, url: String) {
+        val appContext = context.applicationContext
+        prefetcher.execute {
+            try { getOrFetch(appContext, url) } catch (_: Exception) { }
+        }
+    }
+
+    fun extractionDuration(url: String): Long? = extractionTimes[key(url)]
 
     fun load(context: Context, url: String, forDownload: Boolean = false): CachedPreview? {
         val file = file(context, url)
@@ -56,8 +72,10 @@ internal object PreviewStore {
     }
 
     private fun file(context: Context, url: String): File {
-        val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
-        val name = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val name = key(url)
         return File(directory(context), "$name.json")
     }
+
+    private fun key(url: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
