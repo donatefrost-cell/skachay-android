@@ -5,6 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.choice.AvailableFormat
+import ru.skachay.app.settings.VideoBitrateLimit
 
 class YtDlpOptionsTest {
     @Test
@@ -40,6 +41,15 @@ class YtDlpOptionsTest {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s", Quality.BEST).buildCommand()
         assertTrue(args.any { it.contains("height<=1080") && it.contains("avc1") })
         assertFalse(args.any { it.contains("height<=720") })
+    }
+
+    @Test
+    fun appliesVideoBitrateLimitToAutomaticYoutubeSelection() {
+        val args = YtDlpOptions.request(
+            "https://youtu.be/example", "/cache/media.%(ext)s",
+            videoBitrateLimit = VideoBitrateLimit.K5000,
+        ).buildCommand()
+        assertTrue(args.any { it.contains("vbr<=5000") })
     }
 
     @Test

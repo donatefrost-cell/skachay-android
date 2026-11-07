@@ -257,7 +257,7 @@ class DownloadService : Service() {
                     audioOnly = selected != null && !selected.hasVideo && selected.hasAudio
                     val streams = if (audioExport == AudioExport.SOURCE && subtitleLanguage == null) {
                         if (selected != null) YouTubeFormatSelector.selected(cached.preview, selected, videoOnly)
-                        else YouTubeFormatSelector.automatic(cached.preview, settings.quality)
+                        else YouTubeFormatSelector.automatic(cached.preview, settings.quality, settings.videoBitrateLimit)
                     } else null
                     if (streams != null) {
                         transferStats.start()
@@ -283,13 +283,13 @@ class DownloadService : Service() {
                             transferStats.start()
                             YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached.file, selected,
                                 videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
-                                onDetailedProgress = detailedReport)
+                                onDetailedProgress = detailedReport, videoBitrateLimit = settings.videoBitrateLimit)
                         }
                     } else {
                         transferStats.start()
                         YtDlpRuntime.download(this, url, directory, settings.quality, report, timer::switchTo, cached.file, selected,
                             videoOnly, settings.retries, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
-                            onDetailedProgress = detailedReport)
+                            onDetailedProgress = detailedReport, videoBitrateLimit = settings.videoBitrateLimit)
                     }
                 } else {
                     val direct = File(directory, "direct.tmp")

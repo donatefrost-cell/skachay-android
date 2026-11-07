@@ -97,6 +97,7 @@ import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
+import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.settings.qualityFor
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
@@ -321,6 +322,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
     val scope = rememberCoroutineScope()
     var showQualitySheet by remember { mutableStateOf(false) }
     var showPlatformQualitySheet by remember { mutableStateOf(false) }
+    var showVideoBitrateSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -365,6 +367,10 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                     SettingsRow("Качество по приложениям", "YouTube · Instagram · TikTok", R.drawable.ic_quality,
                         trailing = { Text("Настроить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
                         onClick = { showPlatformQualitySheet = true })
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingsRow("Максимальный битрейт видео", settings.videoBitrateLimit.label, R.drawable.ic_quality,
+                        trailing = { Text("Изменить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
+                        onClick = { showVideoBitrateSheet = true })
                 } else if (settings.quality !in listOf(Quality.AUTO, Quality.BEST, Quality.P2160, Quality.MAX)) {
                     Text("Текущий предел: ${settings.quality.label}", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -454,6 +460,22 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 }
                 SettingsRow("Instagram", "Исходное качество публикации", R.drawable.ic_quality)
                 SettingsRow("TikTok", "Исходное качество публикации", R.drawable.ic_quality)
+            }
+        }
+    }
+    if (showVideoBitrateSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showVideoBitrateSheet = false },
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Максимальный битрейт видео", style = MaterialTheme.typography.headlineSmall)
+                Text("Ограничивает автоматический выбор исходных YouTube-форматов без перекодирования. Ручной выбор формата имеет приоритет.", style = MaterialTheme.typography.bodyMedium)
+                VideoBitrateLimit.entries.forEach { limit ->
+                    SettingsRow(limit.label, null, R.drawable.ic_quality,
+                        trailing = { Text(if (settings.videoBitrateLimit == limit) "Выбрано" else "", color = MaterialTheme.colorScheme.primary) },
+                        onClick = { scope.launch { repository.setVideoBitrateLimit(limit) }; showVideoBitrateSheet = false })
+                }
             }
         }
     }

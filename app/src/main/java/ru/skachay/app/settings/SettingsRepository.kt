@@ -34,6 +34,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
                 wifiOnly = preferences[WIFI_ONLY] ?: false,
                 youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
+                videoBitrateLimit = enumOrDefault(preferences[VIDEO_BITRATE_LIMIT], VideoBitrateLimit.ANY),
             )
         }
 
@@ -59,6 +60,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
     suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
     suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
+    suspend fun setVideoBitrateLimit(limit: VideoBitrateLimit) { store.edit { it[VIDEO_BITRATE_LIMIT] = limit.name } }
     suspend fun setPlatformQuality(platform: DownloadPlatform, quality: Quality) {
         store.edit { preferences ->
             preferences[when (platform) {
@@ -80,6 +82,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val LARGE_MODE = booleanPreferencesKey("large_mode")
         private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         private val YOUTUBE_QUALITY = stringPreferencesKey("youtube_quality")
+        private val VIDEO_BITRATE_LIMIT = stringPreferencesKey("video_bitrate_limit")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 

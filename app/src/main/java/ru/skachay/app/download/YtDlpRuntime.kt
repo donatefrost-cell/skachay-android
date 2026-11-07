@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import ru.skachay.app.settings.EngineChannel
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.diagnostics.DownloadStage
 import ru.skachay.app.diagnostics.stageFromYtDlpOutput
@@ -107,6 +108,7 @@ internal object YtDlpRuntime {
         subtitleAutomatic: Boolean = false,
         embedSubtitles: Boolean = false,
         onDetailedProgress: (YtDlpProgress) -> Unit = {},
+        videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -116,7 +118,7 @@ internal object YtDlpRuntime {
                     onStage(DownloadStage.EXTRACTION)
                     val request = YtDlpOptions.request(
                         url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries,
-                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
+                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles, videoBitrateLimit,
                     )
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
                         stageFromYtDlpOutput(line.orEmpty())?.let(onStage)

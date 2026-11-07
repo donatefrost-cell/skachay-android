@@ -3,6 +3,7 @@ package ru.skachay.app.download
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import ru.skachay.app.choice.AvailableFormat
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.VideoBitrateLimit
 
 internal object YtDlpOptions {
     fun request(
@@ -18,6 +19,7 @@ internal object YtDlpOptions {
         subtitleLanguage: String? = null,
         subtitleAutomatic: Boolean = false,
         embedSubtitles: Boolean = false,
+        videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
     ): YoutubeDLRequest = YoutubeDLRequest(if (infoJson == null) listOf(url) else emptyList()).apply {
         addOption("--no-playlist")
         addOption("--no-mtime")
@@ -30,10 +32,12 @@ internal object YtDlpOptions {
             if (!selected.hasVideo || selected.hasAudio || videoOnly) selected.id
             else "${selected.id}+bestaudio[ext=m4a]/${selected.id}+bestaudio"
         } else if (SourceType.isYouTube(url)) {
-            if (quality == Quality.MAX) "bestvideo+bestaudio/best"
+            val bitrate = videoBitrateLimit.maxKbps?.let { "[vbr<=$it]" }.orEmpty()
+            if (quality == Quality.MAX && bitrate.isEmpty()) "bestvideo+bestaudio/best"
+            else if (quality == Quality.MAX) "bv[vcodec^=avc1]$bitrate+ba[acodec^=mp4a]/b$bitrate"
             else {
                 val height = quality.maximumHeight ?: 1080
-                "bv[height<=$height][vcodec^=avc1]+ba[acodec^=mp4a]/b[height<=$height][vcodec^=avc1]/b[height<=$height]"
+                "bv[height<=$height][vcodec^=avc1]$bitrate+ba[acodec^=mp4a]/b[height<=$height][vcodec^=avc1]$bitrate/b[height<=$height]$bitrate"
             }
         } else {
             "bv[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/b"

@@ -76,6 +76,7 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -94,6 +95,8 @@ import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.YouTubeFormatSelector
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.SettingsRepository
+import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.SkachayTheme
 
 private sealed interface PreviewState {
@@ -118,6 +121,7 @@ class ChoiceActivity : ComponentActivity() {
         setContent {
             SkachayTheme {
                 var quality by remember { mutableStateOf(initial) }
+                var videoBitrateLimit by remember { mutableStateOf(VideoBitrateLimit.ANY) }
                 var selected by remember { mutableStateOf<AvailableFormat?>(null) }
                 var videoOnly by remember { mutableStateOf(false) }
                 var showAudio by remember { mutableStateOf(false) }
@@ -136,11 +140,15 @@ class ChoiceActivity : ComponentActivity() {
                 LaunchedEffect(url) {
                     if (state is PreviewState.Loading) {
                         state = try {
+                            val appSettings = withContext(Dispatchers.IO) {
+                                SettingsRepository.forContext(applicationContext).settings.first()
+                            }
+                            videoBitrateLimit = appSettings.videoBitrateLimit
                             if (isYouTube) {
                                 val cached = withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) }
                                 val requestedId = intent.getStringExtra(DownloadService.EXTRA_FORMAT_ID)
                                 selected = cached.preview.formats.firstOrNull { it.id == requestedId }
-                                    ?: YouTubeFormatSelector.preferredVideo(cached.preview, quality)
+                                    ?: YouTubeFormatSelector.preferredVideo(cached.preview, quality, appSettings.videoBitrateLimit)
                                 selected?.let { showAudio = !it.hasVideo }
                                 PreviewState.Ready(cached)
                             } else {
@@ -162,9 +170,12 @@ class ChoiceActivity : ComponentActivity() {
                 LaunchedEffect(state) { if (state !is PreviewState.Loading) slowSearch = false }
                 var confirmLargeDownload by remember(url) { mutableStateOf(false) }
                 val previewForEstimate = (state as? PreviewState.Ready)?.cached?.preview
-                val estimatedSize = remember(previewForEstimate, quality, selected, videoOnly) {
-                    previewForEstimate?.let { YouTubeFormatSelector.estimate(it, quality, selected, videoOnly) }
+                val estimatedSize = remember(previewForEstimate, quality, selected, videoOnly, videoBitrateLimit) {
+                    previewForEstimate?.let { YouTubeFormatSelector.estimate(it, quality, selected, videoOnly, videoBitrateLimit) }
                 }
+                val limitHasNoMatch = isYouTube && !showAudio && previewForEstimate != null &&
+                    videoBitrateLimit.maxKbps != null && selected == null &&
+                    YouTubeFormatSelector.preferredVideo(previewForEstimate, quality, videoBitrateLimit) == null
                 val beginDownload = {
                     val social = state as? PreviewState.SocialReady
                     startDownload(this@ChoiceActivity, url, quality, usePreview = state is PreviewState.Ready,
@@ -221,7 +232,7 @@ class ChoiceActivity : ComponentActivity() {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         FilterChip(selected = !showAudio, onClick = {
                                             showAudio = false
-                                            selected = previewForEstimate?.let { YouTubeFormatSelector.preferredVideo(it, quality) }
+                                            selected = previewForEstimate?.let { YouTubeFormatSelector.preferredVideo(it, quality, videoBitrateLimit) }
                                             videoOnly = false
                                         }, label = { Text("Видео") })
                                         FilterChip(selected = showAudio, onClick = {
@@ -237,8 +248,11 @@ class ChoiceActivity : ComponentActivity() {
                                     .sortedWith(compareByDescending<AvailableFormat> { it.isOriginalAudio }.thenByDescending { it.audioBitrate ?: 0 }.thenBy { it.isVolumeBalanced })
                                 if (!showAudio) {
                                     if (video.isEmpty()) item { Text("Видеоформаты пока не получены.") }
+                                    if (limitHasNoMatch) item {
+                                        Text("Нет автоматического формата с битрейтом ${videoBitrateLimit.label.removePrefix("До ")}. Выберите формат вручную или измените предел в настройках.", color = MaterialTheme.colorScheme.error)
+                                    }
                                     items(video) { format ->
-                                        val preselected = selected?.id == format.id || (selected == null && format.id == preview?.let { YouTubeFormatSelector.preferredVideo(it, quality)?.id })
+                                        val preselected = selected?.id == format.id || (selected == null && format.id == preview?.let { YouTubeFormatSelector.preferredVideo(it, quality, videoBitrateLimit)?.id })
                                         Column {
                                             ChoiceRow(formatLabel(this@ChoiceActivity, format, preview?.durationSeconds), preselected) {
                                                 selected = format; videoOnly = false
@@ -302,7 +316,7 @@ class ChoiceActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        Button(enabled = state !is PreviewState.Loading && !invalidFileName && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
+                        Button(enabled = state !is PreviewState.Loading && !invalidFileName && !limitHasNoMatch && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
                             if (estimatedSize != null && estimatedSize > 500L * 1024 * 1024) confirmLargeDownload = true
                             else beginDownload()
                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp)) {

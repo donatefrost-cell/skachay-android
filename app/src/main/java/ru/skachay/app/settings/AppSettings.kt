@@ -19,6 +19,14 @@ enum class Quality(val maximumHeight: Int?, val label: String) {
 }
 enum class ShareMode { AUTO, CHOOSE }
 enum class EngineChannel { STABLE, NIGHTLY }
+enum class VideoBitrateLimit(val maxKbps: Int?, val label: String) {
+    ANY(null, "Без ограничения"),
+    K1000(1_000, "До 1 Мбит/с"),
+    K2500(2_500, "До 2,5 Мбит/с"),
+    K5000(5_000, "До 5 Мбит/с"),
+    K8000(8_000, "До 8 Мбит/с"),
+    K12000(12_000, "До 12 Мбит/с"),
+}
 
 data class AppSettings(
     val onboardingComplete: Boolean = false,
@@ -32,6 +40,7 @@ data class AppSettings(
     val largeMode: Boolean = true,
     val wifiOnly: Boolean = false,
     val youtubeQuality: Quality? = null,
+    val videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
 )
 
 fun AppSettings.qualityFor(platform: DownloadPlatform): Quality = when (platform) {

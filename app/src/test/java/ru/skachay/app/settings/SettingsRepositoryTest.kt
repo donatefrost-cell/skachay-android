@@ -25,6 +25,7 @@ class SettingsRepositoryTest {
             assertEquals(2, settings.parallelDownloads)
             assertEquals(8, settings.connections)
             assertEquals(2, settings.retries)
+            assertEquals(VideoBitrateLimit.ANY, settings.videoBitrateLimit)
             assertTrue(settings.largeMode)
             assertFalse(settings.wifiOnly)
             assertEquals(Quality.AUTO, settings.qualityFor(DownloadPlatform.YOUTUBE))
@@ -44,6 +45,7 @@ class SettingsRepositoryTest {
             repository.setEngineChannel(EngineChannel.NIGHTLY)
             repository.setLargeMode(false)
             repository.setWifiOnly(true)
+            repository.setVideoBitrateLimit(VideoBitrateLimit.K5000)
             val settings = repository.settings.first()
             assertTrue(settings.onboardingComplete)
             assertEquals(UserMode.ADVANCED, settings.mode)
@@ -55,6 +57,7 @@ class SettingsRepositoryTest {
             assertEquals(EngineChannel.NIGHTLY, settings.engineChannel)
             assertFalse(settings.largeMode)
             assertTrue(settings.wifiOnly)
+            assertEquals(VideoBitrateLimit.K5000, settings.videoBitrateLimit)
         }
     }
 
