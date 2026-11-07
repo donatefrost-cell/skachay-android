@@ -41,6 +41,10 @@ data class AppSettings(
     val wifiOnly: Boolean = false,
     val youtubeQuality: Quality? = null,
     val videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
+    val rememberQualityChoice: Boolean = false,
+    val lastVideoQualityTier: String? = null,
+    val lastAudioQualityKind: String? = null,
+    val lastQualityWasAudio: Boolean = false,
 )
 
 fun AppSettings.qualityFor(platform: DownloadPlatform): Quality = when (platform) {

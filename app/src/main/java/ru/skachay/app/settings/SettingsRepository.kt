@@ -35,6 +35,10 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 wifiOnly = preferences[WIFI_ONLY] ?: false,
                 youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
                 videoBitrateLimit = enumOrDefault(preferences[VIDEO_BITRATE_LIMIT], VideoBitrateLimit.ANY),
+                rememberQualityChoice = preferences[REMEMBER_QUALITY_CHOICE] ?: false,
+                lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
+                lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
+                lastQualityWasAudio = preferences[LAST_QUALITY_WAS_AUDIO] ?: false,
             )
         }
 
@@ -61,6 +65,14 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
     suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
     suspend fun setVideoBitrateLimit(limit: VideoBitrateLimit) { store.edit { it[VIDEO_BITRATE_LIMIT] = limit.name } }
+    suspend fun setRememberQualityChoice(enabled: Boolean) { store.edit { it[REMEMBER_QUALITY_CHOICE] = enabled } }
+    suspend fun setLastQualityChoices(videoTier: String?, audioKind: String?, wasAudio: Boolean? = null) {
+        store.edit { preferences ->
+            if (videoTier == null) preferences.remove(LAST_VIDEO_QUALITY_TIER) else preferences[LAST_VIDEO_QUALITY_TIER] = videoTier
+            if (audioKind == null) preferences.remove(LAST_AUDIO_QUALITY_KIND) else preferences[LAST_AUDIO_QUALITY_KIND] = audioKind
+            if (wasAudio != null) preferences[LAST_QUALITY_WAS_AUDIO] = wasAudio
+        }
+    }
     suspend fun setPlatformQuality(platform: DownloadPlatform, quality: Quality) {
         store.edit { preferences ->
             preferences[when (platform) {
@@ -83,6 +95,10 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         private val YOUTUBE_QUALITY = stringPreferencesKey("youtube_quality")
         private val VIDEO_BITRATE_LIMIT = stringPreferencesKey("video_bitrate_limit")
+        private val REMEMBER_QUALITY_CHOICE = booleanPreferencesKey("remember_quality_choice")
+        private val LAST_VIDEO_QUALITY_TIER = stringPreferencesKey("last_video_quality_tier")
+        private val LAST_AUDIO_QUALITY_KIND = stringPreferencesKey("last_audio_quality_kind")
+        private val LAST_QUALITY_WAS_AUDIO = booleanPreferencesKey("last_quality_was_audio")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 

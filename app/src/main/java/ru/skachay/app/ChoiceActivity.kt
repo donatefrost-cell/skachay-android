@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.text.format.Formatter
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -52,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +79,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -86,6 +89,10 @@ import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreview
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.VideoPreview
+import ru.skachay.app.choice.QualityAudioKind
+import ru.skachay.app.choice.QualityChoiceBuilder
+import ru.skachay.app.choice.QualityVideoCard
+import ru.skachay.app.choice.QualityVideoTier
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.InstagramLink
@@ -94,8 +101,10 @@ import ru.skachay.app.download.SavedFileName
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.YouTubeFormatSelector
+import ru.skachay.app.download.YouTubePlaylistLink
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
+import ru.skachay.app.settings.UserMode
 import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.SkachayTheme
 
@@ -117,21 +126,55 @@ class ChoiceActivity : ComponentActivity() {
         if (url == null) { finish(); return }
         val initial = Quality.entries.firstOrNull { it.name == intent.getStringExtra(DownloadService.EXTRA_QUALITY) } ?: Quality.AUTO
         val isYouTube = SourceType.isYouTube(url)
+        val isPurePlaylist = YouTubePlaylistLink.isPurePlaylist(url)
         val isSocial = InstagramLink.supports(url) || TikTokLink.supports(url)
+        if (isPurePlaylist) {
+            val requestedQuality = Quality.entries.firstOrNull { it.name == intent.getStringExtra(DownloadService.EXTRA_QUALITY) }
+            setContent {
+                SkachayTheme {
+                    AlertDialog(
+                        onDismissRequest = { finish() },
+                        title = { Text("Скачать плейлист целиком?") },
+                        text = {
+                            Text(if (requestedQuality == null) {
+                                "Будут загружены все доступные видео с качеством из настроек. Размер списка заранее неизвестен."
+                            } else {
+                                "Будут загружены все доступные видео в качестве «${requestedQuality.label}». Размер списка заранее неизвестен."
+                            })
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                startDownload(this@ChoiceActivity, url, requestedQuality, usePreview = false, allowPlaylist = true)
+                                finish()
+                            }) { Text("Скачать плейлист") }
+                        },
+                        dismissButton = { TextButton(onClick = { finish() }) { Text("Отмена") } },
+                    )
+                }
+            }
+            return
+        }
         setContent {
             SkachayTheme {
+                val settingsRepository = remember { SettingsRepository.forContext(applicationContext) }
+                val coroutineScope = rememberCoroutineScope()
                 var quality by remember { mutableStateOf(initial) }
                 var videoBitrateLimit by remember { mutableStateOf(VideoBitrateLimit.ANY) }
                 var selected by remember { mutableStateOf<AvailableFormat?>(null) }
+                var selectedVideoTier by remember { mutableStateOf<QualityVideoTier?>(null) }
                 var videoOnly by remember { mutableStateOf(false) }
-                var showAudio by remember { mutableStateOf(false) }
-                var showMore by remember { mutableStateOf(false) }
+                var audioMode by remember { mutableStateOf(false) }
+                var showAdvancedPage by remember { mutableStateOf(false) }
                 var slowSearch by remember { mutableStateOf(false) }
+                var rememberChoice by remember { mutableStateOf(false) }
+                var advancedMode by remember { mutableStateOf(false) }
+                var selectedAudioKind by remember { mutableStateOf<QualityAudioKind?>(null) }
                 var audioExport by remember { mutableStateOf(AudioExport.SOURCE) }
-                var audioBitrate by remember { mutableStateOf(AudioBitrate.K192) }
+                var audioBitrate by remember { mutableStateOf(AudioBitrate.K128) }
                 var subtitleLanguage by remember { mutableStateOf<String?>(null) }
                 var subtitleAutomatic by remember { mutableStateOf(false) }
                 var embedSubtitles by remember { mutableStateOf(false) }
+                var embedThumbnail by remember { mutableStateOf(false) }
                 var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
                 var fileName by remember(url) { mutableStateOf(intent.getStringExtra(DownloadService.EXTRA_FILE_NAME).orEmpty().take(256)) }
                 val cleanedFileName = remember(fileName) { SavedFileName.clean(fileName) }
@@ -140,16 +183,34 @@ class ChoiceActivity : ComponentActivity() {
                 LaunchedEffect(url) {
                     if (state is PreviewState.Loading) {
                         state = try {
-                            val appSettings = withContext(Dispatchers.IO) {
-                                SettingsRepository.forContext(applicationContext).settings.first()
-                            }
+                            val appSettings = withContext(Dispatchers.IO) { settingsRepository.settings.first() }
                             videoBitrateLimit = appSettings.videoBitrateLimit
+                            rememberChoice = appSettings.rememberQualityChoice
+                            advancedMode = appSettings.mode == UserMode.ADVANCED
                             if (isYouTube) {
                                 val cached = withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) }
+                                val cards = QualityChoiceBuilder.videoCards(cached.preview)
                                 val requestedId = intent.getStringExtra(DownloadService.EXTRA_FORMAT_ID)
-                                selected = cached.preview.formats.firstOrNull { it.id == requestedId }
-                                    ?: YouTubeFormatSelector.preferredVideo(cached.preview, quality, appSettings.videoBitrateLimit)
-                                selected?.let { showAudio = !it.hasVideo }
+                                val initialVideo = QualityChoiceBuilder.initialVideoChoice(
+                                    cards, quality, appSettings.rememberQualityChoice, appSettings.lastVideoQualityTier,
+                                )
+                                val initialAudio = QualityChoiceBuilder.initialAudioChoice(
+                                    QualityChoiceBuilder.audioCards(cached.preview), appSettings.rememberQualityChoice, appSettings.lastAudioQualityKind,
+                                )
+                                selectedAudioKind = initialAudio?.kind
+                                val restoreAudioMode = appSettings.rememberQualityChoice && appSettings.lastQualityWasAudio
+                                val requestedAudio = cached.preview.formats.firstOrNull { it.id == requestedId && !it.hasVideo && it.hasAudio }
+                                val requestedVideo = cards.firstOrNull { it.video.id == requestedId }
+                                if (requestedAudio != null || restoreAudioMode) {
+                                    audioMode = true
+                                    selected = requestedAudio ?: initialAudio?.source
+                                } else {
+                                    selected = requestedVideo?.video ?: initialVideo?.video
+                                }
+                                selectedVideoTier = requestedVideo?.tier ?: initialVideo?.tier
+                                if (audioMode) {
+                                    audioExport = if (selectedAudioKind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
+                                }
                                 PreviewState.Ready(cached)
                             } else {
                                 val preview = withContext(Dispatchers.IO) { SocialPreviewStore.getOrFetch(applicationContext, url) }
@@ -170,167 +231,211 @@ class ChoiceActivity : ComponentActivity() {
                 LaunchedEffect(state) { if (state !is PreviewState.Loading) slowSearch = false }
                 var confirmLargeDownload by remember(url) { mutableStateOf(false) }
                 val previewForEstimate = (state as? PreviewState.Ready)?.cached?.preview
-                val estimatedSize = remember(previewForEstimate, quality, selected, videoOnly, videoBitrateLimit) {
-                    previewForEstimate?.let { YouTubeFormatSelector.estimate(it, quality, selected, videoOnly, videoBitrateLimit) }
+                val videoChoices = remember(previewForEstimate) { previewForEstimate?.let { QualityChoiceBuilder.videoCards(it) }.orEmpty() }
+                val audioChoices = remember(previewForEstimate) { previewForEstimate?.let { QualityChoiceBuilder.audioCards(it) }.orEmpty() }
+                val selectedVideoChoice = videoChoices.firstOrNull { it.video.id == selected?.id }
+                val selectedAudioChoice = audioChoices.firstOrNull { it.kind == selectedAudioKind }
+                val estimatedSize = when {
+                    isYouTube && audioMode -> selectedAudioChoice?.estimatedSizeBytes
+                    isYouTube && !videoOnly && selectedVideoChoice != null -> selectedVideoChoice.estimatedSizeBytes
+                    isYouTube -> previewForEstimate?.let {
+                        YouTubeFormatSelector.estimate(it, quality, selected, videoOnly, videoBitrateLimit)
+                    }
+                    else -> null
                 }
-                val limitHasNoMatch = isYouTube && !showAudio && previewForEstimate != null &&
-                    videoBitrateLimit.maxKbps != null && selected == null &&
-                    YouTubeFormatSelector.preferredVideo(previewForEstimate, quality, videoBitrateLimit) == null
-                val beginDownload = {
+                val beginDownload: (Boolean) -> Unit = { downloadPlaylist ->
                     val social = state as? PreviewState.SocialReady
-                    startDownload(this@ChoiceActivity, url, quality, usePreview = state is PreviewState.Ready,
-                        formatId = selected?.id, videoOnly = videoOnly, socialPreviewId = social?.cached?.id,
+                    val playlistQuality = if (downloadPlaylist && !audioMode) when (selected?.height ?: Int.MAX_VALUE) {
+                        in 0..360 -> Quality.P360
+                        in 361..480 -> Quality.P480
+                        in 481..720 -> Quality.P720
+                        in 721..1080 -> Quality.P1080
+                        in 1081..1440 -> Quality.P1440
+                        in 1441..2160 -> Quality.P2160
+                        else -> Quality.MAX
+                    } else quality
+                    startDownload(this@ChoiceActivity, url, playlistQuality, usePreview = state is PreviewState.Ready && !downloadPlaylist,
+                        formatId = selected?.id.takeUnless { downloadPlaylist }, videoOnly = videoOnly && !downloadPlaylist, socialPreviewId = social?.cached?.id,
                         selectedItems = social?.let { selectedItems.sorted().toIntArray() }, fileName = cleanedFileName,
                         audioExport = audioExport, audioBitrate = audioBitrate.kilobits,
                         subtitleLanguage = subtitleLanguage, subtitleAutomatic = subtitleAutomatic,
-                        embedSubtitles = embedSubtitles)
+                        embedSubtitles = embedSubtitles, embedThumbnail = embedThumbnail,
+                        allowPlaylist = downloadPlaylist, playlistAudioOnly = downloadPlaylist && audioMode)
                     finish()
                 }
-                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                ModalBottomSheet(onDismissRequest = { finish() }, sheetState = sheetState, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
-                    Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.82f).dp).padding(horizontal = 24.dp)) {
-                        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item { Text("Скачать", style = MaterialTheme.typography.headlineSmall) }
-                            when (val previewState = state) {
-                                PreviewState.Loading -> item { LoadingPreview(slowSearch) { finish() } }
-                                PreviewState.Failed -> item { Text("Не удалось получить список файлов. Можно попробовать скачать автоматически.") }
-                                PreviewState.NotNeeded -> item { Text("Для этой ссылки приложение выберет доступный файл автоматически.") }
-                                is PreviewState.Ready -> item { PreviewCard(previewState.cached, "YouTube") }
-                                is PreviewState.SocialReady -> {
-                                    item {
-                                        Column {
-                                            Text("Выберите файлы публикации", style = MaterialTheme.typography.titleMedium)
-                                            TextButton(onClick = {
-                                                selectedItems = if (selectedItems.size == previewState.cached.items.size) emptySet() else previewState.cached.items.indices.toSet()
-                                            }, modifier = Modifier.heightIn(min = 56.dp)) {
-                                                Text(if (selectedItems.size == previewState.cached.items.size) "Снять все" else "Выбрать все")
-                                            }
-                                        }
-                                    }
-                                    item { FileNameField(fileName, invalidFileName) { fileName = it } }
-                                    itemsIndexed(previewState.cached.items) { index, media ->
-                                        SocialChoiceRow(media, index, index in selectedItems) {
-                                            selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
-                                        }
-                                    }
-                                }
-                            }
-                            if (state !is PreviewState.SocialReady) {
-                                item {
-                                    TextButton(onClick = { showMore = !showMore }, modifier = Modifier.heightIn(min = 56.dp)) {
-                                        Text(if (showMore) "Скрыть дополнительные параметры" else "Ещё")
-                                    }
-                                }
-                                if (showMore) {
-                                    item { FileNameField(fileName, invalidFileName) { fileName = it } }
-                                    item { Text("Сохранение: Галерея · папка «Скачай»", style = MaterialTheme.typography.bodyMedium) }
-                                }
-                            }
-                            if (isYouTube) {
-                                item { Text("Качество", style = MaterialTheme.typography.titleMedium) }
-                                item {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        FilterChip(selected = !showAudio, onClick = {
-                                            showAudio = false
-                                            selected = previewForEstimate?.let { YouTubeFormatSelector.preferredVideo(it, quality, videoBitrateLimit) }
-                                            videoOnly = false
-                                        }, label = { Text("Видео") })
-                                        FilterChip(selected = showAudio, onClick = {
-                                            showAudio = true; selected = null; subtitleLanguage = null; embedSubtitles = false
-                                        }, label = { Text("Только звук") })
-                                    }
-                                }
-                                val formats = (state as? PreviewState.Ready)?.cached?.preview?.formats.orEmpty()
-                                val preview = (state as? PreviewState.Ready)?.cached?.preview
-                                val video = formats.filter { it.hasVideo }.sortedWith(compareByDescending<AvailableFormat> { it.height ?: 0 }
-                                    .thenByDescending { it.fps ?: 0 }.thenByDescending { it.videoBitrate ?: 0 })
-                                val audio = formats.filter { !it.hasVideo && it.hasAudio }
-                                    .sortedWith(compareByDescending<AvailableFormat> { it.isOriginalAudio }.thenByDescending { it.audioBitrate ?: 0 }.thenBy { it.isVolumeBalanced })
-                                if (!showAudio) {
-                                    if (video.isEmpty()) item { Text("Видеоформаты пока не получены.") }
-                                    if (limitHasNoMatch) item {
-                                        Text("Нет автоматического формата с битрейтом ${videoBitrateLimit.label.removePrefix("До ")}. Выберите формат вручную или измените предел в настройках.", color = MaterialTheme.colorScheme.error)
-                                    }
-                                    items(video) { format ->
-                                        val preselected = selected?.id == format.id || (selected == null && format.id == preview?.let { YouTubeFormatSelector.preferredVideo(it, quality, videoBitrateLimit)?.id })
-                                        Column {
-                                            ChoiceRow(formatLabel(this@ChoiceActivity, format, preview?.durationSeconds), preselected) {
-                                                selected = format; videoOnly = false
-                                            }
-                                            if (selected?.id == format.id && !format.hasAudio) {
-                                                ChoiceRow("Видео без звука", videoOnly) { videoOnly = !videoOnly }
-                                            }
-                                        }
-                                    }
-                                } else if (audio.isEmpty()) {
-                                    item { Text("Для этого видео подходящий аудиоформат не найден.") }
-                                } else {
-                                    items(audio) { format ->
-                                        ChoiceRow(formatLabel(this@ChoiceActivity, format, preview?.durationSeconds), selected?.id == format.id) {
-                                            selected = format; videoOnly = false
-                                        }
-                                    }
-                                    if (selected?.let { !it.hasVideo && it.hasAudio } == true) {
-                                        item { Text("Формат аудио", style = MaterialTheme.typography.titleMedium) }
-                                        items(AudioExport.entries.toList()) { option ->
-                                            ChoiceRow(option.label, audioExport == option) { audioExport = option }
-                                        }
-                                        if (audioExport != AudioExport.SOURCE) {
-                                            item { Text("Битрейт при перекодировании", style = MaterialTheme.typography.titleMedium) }
-                                            items(AudioBitrate.entries.toList()) { option ->
-                                                ChoiceRow("${option.kilobits} кбит/с", audioBitrate == option) { audioBitrate = option }
-                                            }
-                                        }
-                                    }
-                                }
-                                selected?.takeIf { !it.hasVideo && it.extension == "webm" }?.let {
-                                    item { Text("Звук сохранится в файле OGG без изменения качества.", style = MaterialTheme.typography.bodyMedium) }
-                                }
-                                val subtitleTracks = (state as? PreviewState.Ready)?.cached?.preview?.subtitles.orEmpty()
-                                if (showMore && !showAudio && subtitleTracks.isNotEmpty()) {
-                                    item { Text("Субтитры (необязательно)", style = MaterialTheme.typography.titleMedium) }
-                                    item { Text("Помогают читать речь или смотреть без звука. По умолчанию выключены.") }
-                                    item { ChoiceRow("Без субтитров", subtitleLanguage == null) { subtitleLanguage = null } }
-                                    subtitleTracks.forEach { track ->
-                                        if (track.manual) item {
-                                            ChoiceRow("${track.language} — авторские", subtitleLanguage == track.language && !subtitleAutomatic) {
-                                                subtitleLanguage = track.language; subtitleAutomatic = false
-                                            }
-                                        }
-                                        if (track.automatic) item {
-                                            ChoiceRow("${track.language} — автоматические", subtitleLanguage == track.language && subtitleAutomatic) {
-                                                subtitleLanguage = track.language; subtitleAutomatic = true
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(
-                                            selected = embedSubtitles,
-                                            enabled = subtitleLanguage != null,
-                                            onClick = { embedSubtitles = !embedSubtitles },
-                                        ), verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(checked = embedSubtitles, enabled = subtitleLanguage != null, onCheckedChange = null)
-                                            Text("Встроить в видео (файл .srt тоже сохранится)")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Button(enabled = state !is PreviewState.Loading && !invalidFileName && !limitHasNoMatch && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()), onClick = {
-                            if (estimatedSize != null && estimatedSize > 500L * 1024 * 1024) confirmLargeDownload = true
-                            else beginDownload()
-                        }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp)) {
-                            Text("Скачать" + estimatedSize?.let { " · ~${android.text.format.Formatter.formatShortFileSize(this@ChoiceActivity, it)}" }.orEmpty())
-                        }
+                val requestDownload = {
+                    when {
+                        estimatedSize != null && estimatedSize > 500_000_000L -> confirmLargeDownload = true
+                        else -> beginDownload(false)
                     }
+                }
+                BackHandler(enabled = showAdvancedPage) { showAdvancedPage = false }
+                val selectedTier = selectedVideoTier ?: selectedVideoChoice?.tier
+                val downloadLabel = "Скачать" + estimatedSize?.let { " · ${ru.skachay.app.choice.formatMediaSizeRu(it).removePrefix("≈")}" }.orEmpty()
+                if (showAdvancedPage && previewForEstimate != null) {
+                    AdvancedFormatsPage(
+                        preview = previewForEstimate,
+                        source = "YouTube",
+                        selected = selected,
+                        videoOnly = videoOnly,
+                        fileName = fileName,
+                        fileNameInvalid = invalidFileName,
+                        subtitleLanguage = subtitleLanguage,
+                        subtitleAutomatic = subtitleAutomatic,
+                        embedSubtitles = embedSubtitles,
+                        embedThumbnail = embedThumbnail,
+                        downloadLabel = downloadLabel,
+                        downloadEnabled = !invalidFileName,
+                        onBack = { showAdvancedPage = false },
+                        onSelectFormat = { format ->
+                            selected = format
+                            videoOnly = false
+                            if (!format.hasVideo && format.hasAudio) {
+                                audioMode = true
+                                selectedAudioKind = audioChoices.firstOrNull { it.source.id == format.id }?.kind ?: QualityAudioKind.BEST_M4A
+                                audioExport = AudioExport.SOURCE
+                            } else {
+                                audioMode = false
+                                audioExport = AudioExport.SOURCE
+                                selectedVideoTier = videoChoices.firstOrNull { it.video.id == format.id }?.tier ?: selectedVideoTier
+                            }
+                        },
+                        onVideoOnlyChanged = { videoOnly = it },
+                        onFileNameChanged = { fileName = it },
+                        onSubtitleChanged = { language, automatic -> subtitleLanguage = language; subtitleAutomatic = automatic; if (language == null) embedSubtitles = false },
+                        onEmbedSubtitlesChanged = { embedSubtitles = it },
+                        onEmbedThumbnailChanged = { embedThumbnail = it },
+                        onDownload = requestDownload,
+                    )
                     if (confirmLargeDownload && estimatedSize != null) {
                         AlertDialog(
                             onDismissRequest = { confirmLargeDownload = false },
                             title = { Text("Большой файл") },
                             text = { Text("Размер видео примерно ${android.text.format.Formatter.formatShortFileSize(this@ChoiceActivity, estimatedSize)}. Продолжить загрузку?") },
-                            confirmButton = { TextButton(onClick = { confirmLargeDownload = false; beginDownload() }) { Text("Скачать всё равно") } },
+                            confirmButton = { TextButton(onClick = { confirmLargeDownload = false; beginDownload(false) }) { Text("Скачать всё равно") } },
                             dismissButton = { TextButton(onClick = { confirmLargeDownload = false }) { Text("Отмена") } },
                         )
+                    }
+                } else if (isYouTube) {
+                    ModalBottomSheet(
+                        onDismissRequest = { finish() },
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    ) {
+                        QualityChoiceSheetContent(
+                            preview = previewForEstimate,
+                            source = previewForEstimate?.author?.takeIf { it.isNotBlank() } ?: "YouTube",
+                            loading = state is PreviewState.Loading,
+                            slowSearch = slowSearch,
+                            errorMessage = if (state is PreviewState.Failed) "Не удалось получить список форматов. Можно скачать автоматически." else null,
+                            advancedMode = advancedMode,
+                            audioMode = audioMode,
+                            selectedVideoId = selected?.id,
+                            selectedAudioKind = selectedAudioKind,
+                            videoChoices = videoChoices,
+                            audioChoices = audioChoices,
+                            rememberChoice = rememberChoice,
+                            estimatedSizeBytes = estimatedSize,
+                            downloadEnabled = state !is PreviewState.Loading && !invalidFileName && (!audioMode || selectedAudioChoice != null),
+                            onAudioModeChanged = { enableAudio ->
+                                audioMode = enableAudio
+                                videoOnly = false
+                                if (enableAudio) {
+                                    val choice = selectedAudioChoice ?: audioChoices.firstOrNull()
+                                    selectedAudioKind = choice?.kind
+                                    selected = choice?.source
+                                    audioExport = if (choice?.kind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
+                                    audioBitrate = AudioBitrate.K128
+                                    subtitleLanguage = null
+                                    embedSubtitles = false
+                                    if (rememberChoice) coroutineScope.launch {
+                                        settingsRepository.setLastQualityChoices(selectedTier?.name, choice?.kind?.name, wasAudio = true)
+                                    }
+                                } else {
+                                    val choice = selectedVideoChoice ?: videoChoices.firstOrNull { it.recommended } ?: videoChoices.firstOrNull()
+                                    selected = choice?.video
+                                    selectedVideoTier = choice?.tier
+                                    audioExport = AudioExport.SOURCE
+                                    if (rememberChoice) coroutineScope.launch {
+                                        settingsRepository.setLastQualityChoices(choice?.tier?.name, selectedAudioKind?.name, wasAudio = false)
+                                    }
+                                }
+                            },
+                            onVideoChoice = { choice ->
+                                selected = choice.video
+                                selectedVideoTier = choice.tier
+                                audioMode = false
+                                videoOnly = false
+                                audioExport = AudioExport.SOURCE
+                                if (rememberChoice) coroutineScope.launch {
+                                    settingsRepository.setLastQualityChoices(choice.tier.name, selectedAudioKind?.name, wasAudio = false)
+                                }
+                            },
+                            onAudioChoice = { choice ->
+                                selectedAudioKind = choice.kind
+                                selected = choice.source
+                                audioMode = true
+                                audioExport = if (choice.kind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
+                                audioBitrate = AudioBitrate.K128
+                                if (rememberChoice) coroutineScope.launch {
+                                    settingsRepository.setLastQualityChoices(selectedTier?.name, choice.kind.name, wasAudio = true)
+                                }
+                            },
+                            onRememberChoiceChanged = { enabled ->
+                                rememberChoice = enabled
+                                coroutineScope.launch {
+                                    settingsRepository.setRememberQualityChoice(enabled)
+                                    if (enabled) settingsRepository.setLastQualityChoices(selectedTier?.name, selectedAudioKind?.name, wasAudio = audioMode)
+                                }
+                            },
+                            onOpenAdvanced = { showAdvancedPage = true },
+                            onCancel = { finish() },
+                            onDownload = requestDownload,
+                        )
+                        if (confirmLargeDownload && estimatedSize != null) {
+                            AlertDialog(
+                                onDismissRequest = { confirmLargeDownload = false },
+                                title = { Text("Большой файл") },
+                                text = { Text("Размер видео примерно ${android.text.format.Formatter.formatShortFileSize(this@ChoiceActivity, estimatedSize)}. Продолжить загрузку?") },
+                                confirmButton = { TextButton(onClick = { confirmLargeDownload = false; beginDownload(false) }) { Text("Скачать всё равно") } },
+                                dismissButton = { TextButton(onClick = { confirmLargeDownload = false }) { Text("Отмена") } },
+                            )
+                        }
+                    }
+                } else {
+                    ModalBottomSheet(onDismissRequest = { finish() }, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.92f).dp).padding(horizontal = 20.dp)) {
+                            Text("Скачать", style = MaterialTheme.typography.headlineSmall)
+                            when (val previewState = state) {
+                                PreviewState.Loading -> LoadingPreview(slowSearch) { finish() }
+                                PreviewState.Failed -> Text("Не удалось получить список файлов. Можно попробовать скачать автоматически.")
+                                PreviewState.NotNeeded -> Text("Для этой ссылки приложение выберет доступный файл автоматически.")
+                                is PreviewState.Ready -> PreviewCard(previewState.cached, "YouTube")
+                                is PreviewState.SocialReady -> {
+                                    Text("Выберите файлы публикации", style = MaterialTheme.typography.titleMedium)
+                                    TextButton(onClick = {
+                                        selectedItems = if (selectedItems.size == previewState.cached.items.size) emptySet() else previewState.cached.items.indices.toSet()
+                                    }, modifier = Modifier.heightIn(min = 56.dp)) {
+                                        Text(if (selectedItems.size == previewState.cached.items.size) "Снять все" else "Выбрать все")
+                                    }
+                                    FileNameField(fileName, invalidFileName) { fileName = it }
+                                    LazyColumn(Modifier.weight(1f)) {
+                                        itemsIndexed(previewState.cached.items) { index, media ->
+                                            SocialChoiceRow(media, index, index in selectedItems) {
+                                                selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (state !is PreviewState.SocialReady && !isYouTube) {
+                                FileNameField(fileName, invalidFileName) { fileName = it }
+                            }
+                            Button(
+                                enabled = state !is PreviewState.Loading && !invalidFileName && (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()),
+                                onClick = { beginDownload(false) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp),
+                            ) { Text("Скачать") }
+                        }
                     }
                 }
             }
@@ -442,41 +547,7 @@ private fun MetadataChip(label: String) {
 @Preview(name = "Выбор файла · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Выбор файла · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-internal fun ChoiceSheetPreview() {
-    val sample = CachedPreview(
-        File("preview-cache"),
-        VideoPreview(
-            title = "Пример видео: выбор качества и звука",
-            author = "Канал автора",
-            durationSeconds = 245,
-            thumbnailUrl = null,
-            formats = emptyList(),
-        ),
-    )
-    SkachayPreview {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(top = 96.dp),
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant).align(Alignment.CenterHorizontally))
-                    Text("Скачать", style = MaterialTheme.typography.headlineSmall)
-                    PreviewCardContent(sample.preview, "YouTube", thumbnail = null)
-                    Text("Качество", style = MaterialTheme.typography.titleMedium)
-                    ChoiceRow("1080p · MP4 · ~48 МБ", selected = false, onClick = {})
-                    ChoiceRow("720p · MP4 · ~28 МБ", selected = true, onClick = {})
-                    ChoiceRow("Только звук · m4a · ~4 МБ", selected = false, onClick = {})
-                    Button(onClick = {}, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скачать · ~28 МБ") }
-                }
-            }
-        }
-    }
-}
+internal fun ChoiceSheetPreview() = ChoiceSheetLoadedPreview()
 
 private fun formatLabel(context: Context, format: AvailableFormat, durationSeconds: Int? = null): String {
     val parts = mutableListOf<String>()
@@ -507,7 +578,7 @@ private val thumbnailClient: OkHttpClient by lazy {
     OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
 }
 
-private fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(), maxDimension: Int = 600): Bitmap? = try {
+internal fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(), maxDimension: Int = 600): Bitmap? = try {
     val request = Request.Builder().url(url).apply { headers.forEach { (name, value) -> header(name, value) } }.build()
     thumbnailClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful || response.body.contentLength() > 3_000_000) return null

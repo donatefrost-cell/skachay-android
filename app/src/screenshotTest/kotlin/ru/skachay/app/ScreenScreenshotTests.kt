@@ -39,6 +39,21 @@ fun SettingsScreenshot() = SettingsScreenPreview()
 fun ChoiceScreenshot() = ChoiceSheetPreview()
 
 @PreviewTest
+@Preview(name = "Выбор качества · загрузка", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
+@Composable
+fun ChoiceLoadingScreenshot() = ChoiceSheetLoadingPreview()
+
+@PreviewTest
+@Preview(name = "Выбор качества · длинный заголовок · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Composable
+fun ChoiceLongTitleScreenshot() = ChoiceSheetLongTitlePreview()
+
+@PreviewTest
+@Preview(name = "Выбор качества · звук · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f)
+@Composable
+fun ChoiceAudioScreenshot() = ChoiceSheetAudioPreview()
+
+@PreviewTest
 @Preview(name = "Диагностика · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
 @Preview(name = "Диагностика · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
 @Preview(name = "Диагностика · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)

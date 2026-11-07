@@ -1,11 +1,13 @@
 package ru.skachay.app
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.YouTubePlaylistLink
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.Quality
@@ -48,7 +50,18 @@ internal fun startDownload(
     subtitleLanguage: String? = null,
     subtitleAutomatic: Boolean = false,
     embedSubtitles: Boolean = false,
+    embedThumbnail: Boolean = false,
+    allowPlaylist: Boolean = false,
+    playlistAudioOnly: Boolean = false,
 ) {
+    if (YouTubePlaylistLink.isPurePlaylist(url) && !allowPlaylist) {
+        val choice = Intent(context, ChoiceActivity::class.java).putExtra(DownloadService.EXTRA_URL, url)
+        quality?.let { choice.putExtra(DownloadService.EXTRA_QUALITY, it.name) }
+        fileName?.let { choice.putExtra(DownloadService.EXTRA_FILE_NAME, it) }
+        if (context !is Activity) choice.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(choice)
+        return
+    }
     val service = Intent(context, DownloadService::class.java).putExtra(DownloadService.EXTRA_URL, url)
     quality?.let { service.putExtra(DownloadService.EXTRA_QUALITY, it.name) }
     service.putExtra(DownloadService.EXTRA_USE_PREVIEW, usePreview)
@@ -62,6 +75,9 @@ internal fun startDownload(
     subtitleLanguage?.let { service.putExtra(DownloadService.EXTRA_SUBTITLE_LANGUAGE, it) }
     service.putExtra(DownloadService.EXTRA_SUBTITLE_AUTOMATIC, subtitleAutomatic)
     service.putExtra(DownloadService.EXTRA_EMBED_SUBTITLES, embedSubtitles)
+    service.putExtra(DownloadService.EXTRA_EMBED_THUMBNAIL, embedThumbnail)
+    service.putExtra(DownloadService.EXTRA_ALLOW_PLAYLIST, allowPlaylist)
+    service.putExtra(DownloadService.EXTRA_PLAYLIST_AUDIO_ONLY, playlistAudioOnly)
     try {
         context.startForegroundService(service)
         Toast.makeText(context, "Скачиваю… результат будет в уведомлении", Toast.LENGTH_LONG).show()

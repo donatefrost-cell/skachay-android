@@ -53,6 +53,44 @@ class YtDlpOptionsTest {
     }
 
     @Test
+    fun embedsVideoThumbnailOnlyWhenRequested() {
+        val args = YtDlpOptions.request(
+            "https://youtu.be/example", "/cache/media.%(ext)s", embedThumbnail = true,
+        ).buildCommand()
+        assertTrue(args.contains("--embed-thumbnail"))
+    }
+
+    @Test
+    fun playlistIsOptInAndCanBeDownloadedAsAudio() {
+        val videoArgs = YtDlpOptions.request(
+            "https://youtube.com/playlist?list=PLabc", "/cache/%(playlist_index)03d.%(ext)s",
+            allowPlaylist = true,
+        ).buildCommand()
+        assertTrue(videoArgs.contains("--yes-playlist"))
+        assertFalse(videoArgs.contains("--no-playlist"))
+
+        val audioArgs = YtDlpOptions.request(
+            "https://youtube.com/playlist?list=PLabc", "/cache/%(playlist_index)03d.%(ext)s",
+            allowPlaylist = true, playlistAudioOnly = true, audioExport = AudioExport.MP3,
+            audioBitrate = AudioBitrate.K128,
+        ).buildCommand()
+        assertTrue(audioArgs.contains("bestaudio[ext=m4a]/bestaudio"))
+        assertTrue(audioArgs.contains("--extract-audio"))
+        assertTrue(audioArgs.indexOf("--audio-format").let { it >= 0 && audioArgs[it + 1] == "mp3" })
+        assertTrue(audioArgs.indexOf("--audio-quality").let { it >= 0 && audioArgs[it + 1] == "128K" })
+    }
+
+    @Test
+    fun videoLinkInsideAPlaylistStillGetsNoPlaylistOption() {
+        val args = YtDlpOptions.request(
+            "https://www.youtube.com/watch?v=video123&list=PLabc", "/cache/video.%(ext)s",
+        ).buildCommand()
+
+        assertTrue(args.contains("--no-playlist"))
+        assertFalse(args.contains("--yes-playlist"))
+    }
+
+    @Test
     fun usesTheExtractedInfoAndSelectedFormatWithoutExtractingTheUrlAgain() {
         val selected = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/video.%(ext)s", Quality.AUTO,

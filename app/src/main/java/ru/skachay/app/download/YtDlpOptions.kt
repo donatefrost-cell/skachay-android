@@ -20,14 +20,22 @@ internal object YtDlpOptions {
         subtitleAutomatic: Boolean = false,
         embedSubtitles: Boolean = false,
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
+        embedThumbnail: Boolean = false,
+        allowPlaylist: Boolean = false,
+        playlistAudioOnly: Boolean = false,
     ): YoutubeDLRequest = YoutubeDLRequest(if (infoJson == null) listOf(url) else emptyList()).apply {
-        addOption("--no-playlist")
+        require(!playlistAudioOnly || allowPlaylist)
+        require(!allowPlaylist || selected == null)
+        require(!allowPlaylist || YouTubePlaylistLink.isPurePlaylist(url))
+        addOption(if (allowPlaylist) "--yes-playlist" else "--no-playlist")
         addOption("--no-mtime")
         addOption("--newline")
         addOption("--concurrent-fragments", 4)
         addRetries(this, retries)
         infoJson?.let { addOption("--load-info-json", it) }
-        val format = if (selected != null) {
+        val format = if (playlistAudioOnly) {
+            "bestaudio[ext=m4a]/bestaudio"
+        } else if (selected != null) {
             require(Regex("[A-Za-z0-9._-]{1,80}").matches(selected.id))
             if (!selected.hasVideo || selected.hasAudio || videoOnly) selected.id
             else "${selected.id}+bestaudio[ext=m4a]/${selected.id}+bestaudio"
@@ -43,10 +51,14 @@ internal object YtDlpOptions {
             "bv[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/b"
         }
         addOption("--format", format)
-        val audioOnly = selected != null && !selected.hasVideo && selected.hasAudio
+        val audioOnly = playlistAudioOnly || (selected != null && !selected.hasVideo && selected.hasAudio)
         val outputAudioFormat = audioExport.ytDlpFormat
             ?.takeIf { audioOnly }
-            ?: if (audioOnly && selected!!.extension == "webm") "best" else null
+            ?: when {
+                playlistAudioOnly -> "m4a"
+                audioOnly && selected?.extension == "webm" -> "best"
+                else -> null
+            }
         if (outputAudioFormat != null) {
             addOption("--extract-audio")
             addOption("--audio-format", outputAudioFormat)
@@ -60,6 +72,7 @@ internal object YtDlpOptions {
             addOption("--convert-subs", "srt")
             if (embedSubtitles) addOption("--embed-subs")
         }
+        if (embedThumbnail) addOption("--embed-thumbnail")
         addOption("--merge-output-format", "mp4")
         addOption("--output", output)
     }

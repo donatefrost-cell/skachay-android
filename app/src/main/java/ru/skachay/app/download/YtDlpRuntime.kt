@@ -109,6 +109,7 @@ internal object YtDlpRuntime {
         embedSubtitles: Boolean = false,
         onDetailedProgress: (YtDlpProgress) -> Unit = {},
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
+        embedThumbnail: Boolean = false,
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -118,7 +119,7 @@ internal object YtDlpRuntime {
                     onStage(DownloadStage.EXTRACTION)
                     val request = YtDlpOptions.request(
                         url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries,
-                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles, videoBitrateLimit,
+                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles, videoBitrateLimit, embedThumbnail,
                     )
                     YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
                         stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
@@ -134,5 +135,63 @@ internal object YtDlpRuntime {
             it.isFile && it.name.startsWith("video.") && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") &&
                 !it.name.endsWith(".srt", ignoreCase = true) && !it.name.endsWith(".vtt", ignoreCase = true)
         } ?: throw IOException("No media file produced")
+    }
+
+    fun downloadPlaylist(
+        context: Context,
+        url: String,
+        directory: File,
+        quality: Quality,
+        onProgress: (Int?) -> Unit,
+        onStage: (DownloadStage) -> Unit = {},
+        retries: Int = 2,
+        audioExport: AudioExport = AudioExport.SOURCE,
+        audioBitrate: AudioBitrate = AudioBitrate.K128,
+        audioOnly: Boolean = false,
+        subtitleLanguage: String? = null,
+        subtitleAutomatic: Boolean = false,
+        embedSubtitles: Boolean = false,
+        onDetailedProgress: (YtDlpProgress) -> Unit = {},
+        videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
+        embedThumbnail: Boolean = false,
+    ): List<File> {
+        require(YouTubePlaylistLink.isPurePlaylist(url))
+        initialize(context)
+        val template = File(directory, "%(playlist_index)03d - %(title).100B [%(id)s].%(ext)s").absolutePath
+        RetryAfterUpdate.run(
+            operation = {
+                runtimeLock.read {
+                    onStage(DownloadStage.EXTRACTION)
+                    val request = YtDlpOptions.request(
+                        url = url,
+                        output = template,
+                        quality = quality,
+                        retries = retries,
+                        audioExport = audioExport,
+                        audioBitrate = audioBitrate,
+                        subtitleLanguage = subtitleLanguage,
+                        subtitleAutomatic = subtitleAutomatic,
+                        embedSubtitles = embedSubtitles,
+                        videoBitrateLimit = videoBitrateLimit,
+                        embedThumbnail = embedThumbnail,
+                        allowPlaylist = true,
+                        playlistAudioOnly = audioOnly,
+                    )
+                    YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
+                        stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
+                        val detailed = YtDlpProgressParser.parse(line.orEmpty())
+                        if (detailed != null) onDetailedProgress(detailed)
+                        else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
+                    }
+                }
+            },
+            update = { update(context, selectedChannel(context)) },
+        )
+        val files = directory.listFiles().orEmpty().filter { file ->
+            file.isFile && !file.name.endsWith(".part", true) && !file.name.endsWith(".ytdl", true) &&
+                file.extension.lowercase() !in setOf("srt", "vtt", "json", "jpg", "jpeg", "png", "webp", "description")
+        }.sortedBy { it.name }
+        if (files.isEmpty()) throw IOException("No playlist media files produced")
+        return files
     }
 }
