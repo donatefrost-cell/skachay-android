@@ -21,6 +21,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Установить Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Список screenshot-задач
+        run: ./gradlew --no-daemon :app:tasks --all --console=plain
       - name: Проверить и собрать
         run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateScreenshotTestDefaultDebugTestSuite
       - uses: actions/upload-artifact@v4
