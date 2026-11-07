@@ -18,11 +18,11 @@ class QualityChoiceModelTest {
 
         val choices = QualityChoiceBuilder.videoCards(preview)
 
-        assertEquals(listOf(QualityVideoTier.MAXIMUM, QualityVideoTier.RECOMMENDED, QualityVideoTier.ECONOMICAL), choices.map { it.tier })
-        assertEquals(listOf("720-normal", "720-normal", "360"), choices.map { it.video.id })
+        assertEquals(listOf(QualityVideoTier.RECOMMENDED, QualityVideoTier.ECONOMICAL), choices.map { it.tier })
+        assertEquals(listOf("720-normal", "360"), choices.map { it.video.id })
         assertEquals("m4a", choices.first().audio?.id)
-        assertEquals(4_500_000L, choices[1].estimatedSizeBytes)
-        assertTrue(choices[1].recommended)
+        assertEquals(4_500_000L, choices.first().estimatedSizeBytes)
+        assertTrue(choices.first().recommended)
     }
 
     @Test

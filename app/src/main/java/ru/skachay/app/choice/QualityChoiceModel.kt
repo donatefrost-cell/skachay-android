@@ -69,14 +69,19 @@ internal object QualityChoiceBuilder {
             .thenBy { it.fps ?: 30 }
             .thenBy { it.videoBitrate ?: Int.MAX_VALUE })
 
-        val tiers = listOfNotNull(
+        val candidates = listOfNotNull(
             maximum?.let { QualityVideoTier.MAXIMUM to it },
             recommended?.let { QualityVideoTier.RECOMMENDED to it },
             economical?.let { QualityVideoTier.ECONOMICAL to it },
             minimum?.let { QualityVideoTier.MINIMUM to it },
-        ).distinctBy { (_, format) -> format.id }
+        )
+        val uniqueTiers = linkedMapOf<String, Pair<QualityVideoTier, AvailableFormat>>()
+        candidates.forEach { candidate ->
+            val (tier, format) = candidate
+            if (format.id !in uniqueTiers || tier == QualityVideoTier.RECOMMENDED) uniqueTiers[format.id] = candidate
+        }
 
-        return tiers.map { (tier, format) ->
+        return uniqueTiers.values.map { (tier, format) ->
             val selectedAudio = if (format.hasAudio) null else audio
             QualityVideoCard(
                 tier = tier,
