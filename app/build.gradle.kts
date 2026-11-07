@@ -58,6 +58,7 @@ android {
     }
 
     testOptions {
+        unitTests.isIncludeAndroidResources = true
         screenshotTests.create("screenshotTest") {
             engineVersion = "0.0.1-alpha16"
             targetVariants.add("debug")
