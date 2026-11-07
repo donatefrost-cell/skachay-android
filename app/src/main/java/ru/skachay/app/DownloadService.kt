@@ -19,6 +19,7 @@ import android.util.Log
 import ru.skachay.app.download.DirectDownloader
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
+import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.download.MediaStoreWriter
 import ru.skachay.app.download.MediaType
 import ru.skachay.app.download.InstagramLink
@@ -117,6 +118,9 @@ class DownloadService : Service() {
         val embedThumbnail = intent?.getBooleanExtra(EXTRA_EMBED_THUMBNAIL, false) ?: false
         val allowPlaylist = (intent?.getBooleanExtra(EXTRA_ALLOW_PLAYLIST, false) ?: false) && YouTubePlaylistLink.isPurePlaylist(url)
         val playlistAudioOnly = allowPlaylist && (intent?.getBooleanExtra(EXTRA_PLAYLIST_AUDIO_ONLY, false) ?: false)
+        val downloadFolderUri = intent?.getStringExtra(EXTRA_DOWNLOAD_FOLDER_URI)
+        val overrideDownloadFolder = intent?.getBooleanExtra(EXTRA_OVERRIDE_DOWNLOAD_FOLDER, false) ?: false
+        val folderGrantLeased = intent?.getBooleanExtra(EXTRA_FOLDER_GRANT_LEASED, false) ?: false
         val fileName = SavedFileName.clean(intent?.getStringExtra(EXTRA_FILE_NAME))
         startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality, fileName))
         synchronized(lock) {
@@ -129,20 +133,44 @@ class DownloadService : Service() {
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
         val socialPreviewId = intent?.getStringExtra(EXTRA_SOCIAL_PREVIEW_ID)
         val selectedItems = intent?.getIntArrayExtra(EXTRA_SELECTED_ITEMS)
+        val folderLeaseAtStart = if (!folderGrantLeased && downloadFolderUri == null && !overrideDownloadFolder) {
+            DownloadFolderGrantRegistry.acquireSelected()
+        } else null
         scheduler.execute {
+            var leasedFolderUri = if (folderGrantLeased) downloadFolderUri else folderLeaseAtStart
             try {
                 val settings = runBlocking { SettingsRepository.forContext(this@DownloadService).settings.first() }
                 executor.corePoolSize = settings.parallelDownloads
+                val existingFolderLease = leasedFolderUri
+                val requestedFolderUri = when {
+                    existingFolderLease != null -> {
+                        DownloadFolderGrantRegistry.initialize(this@DownloadService, settings.downloadFolderUri)
+                        if (overrideDownloadFolder) downloadFolderUri else downloadFolderUri ?: existingFolderLease
+                    }
+                    overrideDownloadFolder && downloadFolderUri == null -> {
+                        DownloadFolderGrantRegistry.initialize(this@DownloadService, settings.downloadFolderUri)
+                        null
+                    }
+                    else -> DownloadFolderGrantRegistry.initializeAndAcquire(
+                        this@DownloadService,
+                        settings.downloadFolderUri,
+                        preferredUri = downloadFolderUri,
+                    ).also { leasedFolderUri = it }
+                }
+                val folderUriToRelease = leasedFolderUri
                 executor.execute {
                     try {
                         download(url, id, settings.copy(quality = overrideQuality ?: settings.qualityForUrl(url)), usePreview, formatId, videoOnly,
                             socialPreviewId, selectedItems, fileName, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
-                            embedThumbnail, allowPlaylist, playlistAudioOnly)
+                            embedThumbnail, allowPlaylist, playlistAudioOnly, requestedFolderUri, true)
                     } finally {
+                        DownloadFolderGrantRegistry.release(this@DownloadService, folderUriToRelease)
                         finishJob()
                     }
                 }
+                leasedFolderUri = null
             } catch (error: Exception) {
+                DownloadFolderGrantRegistry.release(this@DownloadService, leasedFolderUri)
                 Log.w("Skachay", "Не удалось начать загрузку: ${error.javaClass.simpleName}")
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
@@ -174,8 +202,9 @@ class DownloadService : Service() {
         url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean,
         socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, audioExport: AudioExport,
         audioBitrate: AudioBitrate, subtitleLanguage: String?, subtitleAutomatic: Boolean, embedSubtitles: Boolean, embedThumbnail: Boolean,
-        allowPlaylist: Boolean, playlistAudioOnly: Boolean,
+        allowPlaylist: Boolean, playlistAudioOnly: Boolean, downloadFolderUri: String?, overrideDownloadFolder: Boolean,
     ) {
+        val requestedFolderUri = if (overrideDownloadFolder) downloadFolderUri else downloadFolderUri ?: settings.downloadFolderUri
         val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
         val socialRequested = socialPreviewId != null || selectedItems != null
         val socialPreview = if (socialPreviewId != null && selectedItems != null) {
@@ -193,6 +222,7 @@ class DownloadService : Service() {
             if (audioExport != AudioExport.SOURCE) append("::audio:${audioExport.name}:${audioBitrate.kilobits}")
             if (subtitleLanguage != null) append("::subs:$subtitleLanguage:${if (subtitleAutomatic) "auto" else "manual"}:${if (embedSubtitles) "embedded" else "file"}")
             if (settings.quality != Quality.AUTO && formatId == null && !socialRequested) append("::quality:${settings.quality.name}")
+            requestedFolderUri?.let { append("::folder:${it.hashCode().toUInt()}") }
         }
         val historyKey = baseHistoryKey + optionSuffix
         if (!activeUrls.add(historyKey)) {
@@ -207,6 +237,7 @@ class DownloadService : Service() {
         var mediaTitle: String? = null
         var thumbnailUrl: String? = null
         try {
+            val outputFolderUri = resolveDownloadFolder(requestedFolderUri, null)
             if (settings.wifiOnly && !wifiAvailable()) throw WifiOnlyRequiredException()
             if (socialRequested && chosenItems == null) throw SocialPreviewUnavailable()
             val history = getSharedPreferences("downloads", MODE_PRIVATE)
@@ -244,7 +275,7 @@ class DownloadService : Service() {
             val saved = if (items.isNotEmpty()) {
                 timer.switchTo(DownloadStage.TRANSFER)
                 transferStats.start()
-                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName, transferStats)
+                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName, transferStats, outputFolderUri)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 var audioOnly = false
@@ -350,7 +381,7 @@ class DownloadService : Service() {
                             val playlistMime = detect(playlistFile, playlistFile.name)
                                 ?: throw IOException("Not a supported playlist media file")
                             val itemName = fileName ?: playlistFile.nameWithoutExtension
-                            output += writer.save(playlistFile, playlistMime, itemName, if (fileName != null) index + 1 else null) to playlistMime
+                            output += writer.save(playlistFile, playlistMime, itemName, if (fileName != null) index + 1 else null, outputFolderUri) to playlistMime
                             val subtitles = subtitleLanguage?.let { language ->
                                 directory.listFiles()?.filter { sidecar ->
                                     sidecar.isFile && sidecar.name.startsWith("${playlistFile.nameWithoutExtension}.$language.") &&
@@ -359,7 +390,7 @@ class DownloadService : Service() {
                             }.orEmpty()
                             subtitles.forEach { subtitle ->
                                 val subtitleName = fileName?.let { "$it.$subtitleLanguage" } ?: "${playlistFile.nameWithoutExtension}.$subtitleLanguage"
-                                output += writer.save(subtitle, "application/x-subrip", subtitleName, if (fileName != null) index + 1 else null) to "application/x-subrip"
+                                output += writer.save(subtitle, "application/x-subrip", subtitleName, if (fileName != null) index + 1 else null, outputFolderUri) to "application/x-subrip"
                             }
                         }
                     } else {
@@ -367,17 +398,17 @@ class DownloadService : Service() {
                             ?: throw IOException("Not a supported media file")
                         if (InstagramLink.isVideoPost(url) && !mime.startsWith("video/")) throw IOException("Expected video")
                         if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
-                        output += MediaStoreWriter(this).save(file, mime, fileName) to mime
+                        output += MediaStoreWriter(this).save(file, mime, fileName, folderUri = outputFolderUri) to mime
                         val subtitleFiles = subtitleLanguage?.let { language ->
                             directory.listFiles()?.filter { it.isFile && it.name.startsWith("video.$language.") && it.extension.equals("srt", true) }.orEmpty()
                         }.orEmpty()
                         subtitleFiles.forEach { subtitle ->
                             val subtitleName = "${fileName ?: file.nameWithoutExtension}.$subtitleLanguage"
-                            output += MediaStoreWriter(this).save(subtitle, "application/x-subrip", subtitleName) to "application/x-subrip"
+                            output += MediaStoreWriter(this).save(subtitle, "application/x-subrip", subtitleName, folderUri = outputFolderUri) to "application/x-subrip"
                         }
                     }
                 } catch (error: Exception) {
-                    output.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
+                    output.forEach { (uri, _) -> deleteSavedUri(uri) }
                     throw error
                 }
                 output
@@ -402,14 +433,15 @@ class DownloadService : Service() {
                 transfer = transferStats.snapshot(), vpnActive = vpnActive())
             notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
                 error is SocialPreviewUnavailable, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
-                embedThumbnail, allowPlaylist, playlistAudioOnly, if (error is SocialPreviewUnavailable) null else friendlyError))
+                embedThumbnail, allowPlaylist, playlistAudioOnly,
+                reason = if (error is SocialPreviewUnavailable) null else friendlyError))
         } finally {
             directory?.deleteRecursively()
             activeUrls.remove(historyKey)
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?, transferStats: TransferStats): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?, transferStats: TransferStats, folderUri: Uri?): List<Pair<Uri, String>> {
         val files = items.mapIndexed { index, item ->
             val file = File(directory, "item-$index.tmp")
             downloader.download(item.url, file, connections = connections, headers = item.headers, retries = retries) { received, total ->
@@ -430,10 +462,10 @@ class DownloadService : Service() {
         try {
             timer.switchTo(DownloadStage.SAVING)
             files.forEachIndexed { index, (file, mime) ->
-                saved += MediaStoreWriter(this).save(file, mime, fileName, if (files.size > 1) index + 1 else null) to mime
+                saved += MediaStoreWriter(this).save(file, mime, fileName, if (files.size > 1) index + 1 else null, folderUri) to mime
             }
         } catch (error: Exception) {
-            saved.forEach { (uri, _) -> contentResolver.delete(uri, null, null) }
+            saved.forEach { (uri, _) -> deleteSavedUri(uri) }
             throw error
         }
         return saved
@@ -443,6 +475,25 @@ class DownloadService : Service() {
         val header = ByteArray(32)
         val length = file.inputStream().use { it.read(header).coerceAtLeast(0) }
         return MediaType.detect(header.copyOf(length), url, audioOnly)
+    }
+
+    private fun resolveDownloadFolder(intentUri: String?, settingsUri: String?): Uri? {
+        val value = intentUri ?: settingsUri ?: return null
+        val uri = try { Uri.parse(value) } catch (_: Exception) { throw IOException("Invalid save folder") }
+        if (uri.scheme != "content") throw IOException("Invalid save folder")
+        val hasWritePermission = contentResolver.persistedUriPermissions.any { grant -> grant.uri == uri && grant.isWritePermission }
+        if (!hasWritePermission) throw IOException("Selected save folder permission expired")
+        return uri
+    }
+
+    private fun deleteSavedUri(uri: Uri) {
+        try {
+            if (android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                android.provider.DocumentsContract.deleteDocument(contentResolver, uri)
+            } else {
+                contentResolver.delete(uri, null, null)
+            }
+        } catch (_: Exception) { }
     }
 
     private fun exists(uri: Uri): Boolean = try {
@@ -552,6 +603,7 @@ class DownloadService : Service() {
         retry.putExtra(EXTRA_EMBED_THUMBNAIL, embedThumbnail)
         retry.putExtra(EXTRA_ALLOW_PLAYLIST, allowPlaylist)
         retry.putExtra(EXTRA_PLAYLIST_AUDIO_ONLY, playlistAudioOnly)
+        retry.putExtra(EXTRA_OVERRIDE_DOWNLOAD_FOLDER, false)
         val pending = if (chooseAgain) choicePendingIntent(url, id, quality, fileName)
             else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = reason ?: when {
@@ -669,6 +721,10 @@ class DownloadService : Service() {
         const val EXTRA_EMBED_THUMBNAIL = "embed_thumbnail"
         const val EXTRA_ALLOW_PLAYLIST = "allow_playlist"
         const val EXTRA_PLAYLIST_AUDIO_ONLY = "playlist_audio_only"
+        const val EXTRA_DOWNLOAD_FOLDER_URI = "download_folder_uri"
+        const val EXTRA_PLAYLIST_QUEUE = "playlist_queue"
+        const val EXTRA_OVERRIDE_DOWNLOAD_FOLDER = "override_download_folder"
+        const val EXTRA_FOLDER_GRANT_LEASED = "folder_grant_leased"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
         private const val GROUP_SUMMARY_ID = Int.MAX_VALUE

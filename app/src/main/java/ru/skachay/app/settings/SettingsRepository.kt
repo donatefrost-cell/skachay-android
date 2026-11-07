@@ -39,6 +39,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
                 lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
                 lastQualityWasAudio = preferences[LAST_QUALITY_WAS_AUDIO] ?: false,
+                downloadFolderUri = preferences[DOWNLOAD_FOLDER_URI],
             )
         }
 
@@ -73,6 +74,11 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
             if (wasAudio != null) preferences[LAST_QUALITY_WAS_AUDIO] = wasAudio
         }
     }
+    suspend fun setDownloadFolderUri(uri: String?) {
+        store.edit { preferences ->
+            if (uri == null) preferences.remove(DOWNLOAD_FOLDER_URI) else preferences[DOWNLOAD_FOLDER_URI] = uri
+        }
+    }
     suspend fun setPlatformQuality(platform: DownloadPlatform, quality: Quality) {
         store.edit { preferences ->
             preferences[when (platform) {
@@ -99,6 +105,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val LAST_VIDEO_QUALITY_TIER = stringPreferencesKey("last_video_quality_tier")
         private val LAST_AUDIO_QUALITY_KIND = stringPreferencesKey("last_audio_quality_kind")
         private val LAST_QUALITY_WAS_AUDIO = booleanPreferencesKey("last_quality_was_audio")
+        private val DOWNLOAD_FOLDER_URI = stringPreferencesKey("download_folder_uri")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 

@@ -1,14 +1,19 @@
 package ru.skachay.app
 
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.text.format.Formatter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,6 +100,7 @@ import ru.skachay.app.choice.QualityVideoCard
 import ru.skachay.app.choice.QualityVideoTier
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
+import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SavedFileName
@@ -130,10 +136,24 @@ class ChoiceActivity : ComponentActivity() {
         val isSocial = InstagramLink.supports(url) || TikTokLink.supports(url)
         if (isPurePlaylist) {
             val requestedQuality = Quality.entries.firstOrNull { it.name == intent.getStringExtra(DownloadService.EXTRA_QUALITY) }
+            val playlistQueue = intent.getStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE).orEmpty()
+            val continuePlaylistQueue = {
+                val nextUrl = playlistQueue.firstOrNull()
+                if (nextUrl == null) {
+                    finish()
+                } else {
+                    val next = Intent(this@ChoiceActivity, ChoiceActivity::class.java)
+                        .putExtra(DownloadService.EXTRA_URL, nextUrl)
+                        .putStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE, ArrayList(playlistQueue.drop(1)))
+                    requestedQuality?.let { next.putExtra(DownloadService.EXTRA_QUALITY, it.name) }
+                    startActivity(next)
+                    finish()
+                }
+            }
             setContent {
                 SkachayTheme {
                     AlertDialog(
-                        onDismissRequest = { finish() },
+                        onDismissRequest = continuePlaylistQueue,
                         title = { Text("Скачать плейлист целиком?") },
                         text = {
                             Text(if (requestedQuality == null) {
@@ -145,10 +165,10 @@ class ChoiceActivity : ComponentActivity() {
                         confirmButton = {
                             TextButton(onClick = {
                                 startDownload(this@ChoiceActivity, url, requestedQuality, usePreview = false, allowPlaylist = true)
-                                finish()
+                                continuePlaylistQueue()
                             }) { Text("Скачать плейлист") }
                         },
-                        dismissButton = { TextButton(onClick = { finish() }) { Text("Отмена") } },
+                        dismissButton = { TextButton(onClick = continuePlaylistQueue) { Text("Отмена") } },
                     )
                 }
             }
@@ -177,6 +197,22 @@ class ChoiceActivity : ComponentActivity() {
                 var embedThumbnail by remember { mutableStateOf(false) }
                 var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
                 var fileName by remember(url) { mutableStateOf(intent.getStringExtra(DownloadService.EXTRA_FILE_NAME).orEmpty().take(256)) }
+                var downloadFolderUri by remember(url) { mutableStateOf<Uri?>(null) }
+                val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                    if (uri != null) {
+                        try {
+                            this@ChoiceActivity.contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                            )
+                            downloadFolderUri = uri
+                            DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, uri.toString())
+                            coroutineScope.launch { settingsRepository.setDownloadFolderUri(uri.toString()) }
+                        } catch (_: SecurityException) {
+                            android.widget.Toast.makeText(this@ChoiceActivity, "Не удалось сохранить доступ к папке", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
                 val cleanedFileName = remember(fileName) { SavedFileName.clean(fileName) }
                 val invalidFileName = fileName.isNotBlank() && cleanedFileName == null
                 var state by remember(url) { mutableStateOf<PreviewState>(if (isYouTube || isSocial) PreviewState.Loading else PreviewState.NotNeeded) }
@@ -187,6 +223,8 @@ class ChoiceActivity : ComponentActivity() {
                             videoBitrateLimit = appSettings.videoBitrateLimit
                             rememberChoice = appSettings.rememberQualityChoice
                             advancedMode = appSettings.mode == UserMode.ADVANCED
+                            downloadFolderUri = appSettings.downloadFolderUri?.let { Uri.parse(it) }
+                            DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, appSettings.downloadFolderUri)
                             if (isYouTube) {
                                 val cached = withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) }
                                 val cards = QualityChoiceBuilder.videoCards(cached.preview)
@@ -260,7 +298,8 @@ class ChoiceActivity : ComponentActivity() {
                         audioExport = audioExport, audioBitrate = audioBitrate.kilobits,
                         subtitleLanguage = subtitleLanguage, subtitleAutomatic = subtitleAutomatic,
                         embedSubtitles = embedSubtitles, embedThumbnail = embedThumbnail,
-                        allowPlaylist = downloadPlaylist, playlistAudioOnly = downloadPlaylist && audioMode)
+                        allowPlaylist = downloadPlaylist, playlistAudioOnly = downloadPlaylist && audioMode,
+                        downloadFolderUri = downloadFolderUri?.toString(), overrideDownloadFolder = true)
                     finish()
                 }
                 val requestDownload = {
@@ -280,6 +319,7 @@ class ChoiceActivity : ComponentActivity() {
                         videoOnly = videoOnly,
                         fileName = fileName,
                         fileNameInvalid = invalidFileName,
+                        saveFolderLabel = downloadFolderUri?.let(::documentFolderLabel) ?: DEFAULT_SAVE_FOLDER_LABEL,
                         subtitleLanguage = subtitleLanguage,
                         subtitleAutomatic = subtitleAutomatic,
                         embedSubtitles = embedSubtitles,
@@ -302,6 +342,12 @@ class ChoiceActivity : ComponentActivity() {
                         },
                         onVideoOnlyChanged = { videoOnly = it },
                         onFileNameChanged = { fileName = it },
+                        onChooseSaveFolder = { folderPicker.launch(downloadFolderUri) },
+                        onResetSaveFolder = {
+                            downloadFolderUri = null
+                            DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, null)
+                            coroutineScope.launch { settingsRepository.setDownloadFolderUri(null) }
+                        },
                         onSubtitleChanged = { language, automatic -> subtitleLanguage = language; subtitleAutomatic = automatic; if (language == null) embedSubtitles = false },
                         onEmbedSubtitlesChanged = { embedSubtitles = it },
                         onEmbedThumbnailChanged = { embedThumbnail = it },
@@ -601,3 +647,9 @@ internal fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(
         BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 })
     }
 } catch (_: IOException) { null }
+
+private fun documentFolderLabel(uri: Uri): String = try {
+    DocumentsContract.getTreeDocumentId(uri).substringAfter(':').ifBlank { "Выбрана папка" }
+} catch (_: IllegalArgumentException) {
+    "Выбрана папка"
+}

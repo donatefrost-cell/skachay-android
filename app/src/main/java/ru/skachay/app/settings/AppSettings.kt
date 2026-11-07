@@ -45,6 +45,7 @@ data class AppSettings(
     val lastVideoQualityTier: String? = null,
     val lastAudioQualityKind: String? = null,
     val lastQualityWasAudio: Boolean = false,
+    val downloadFolderUri: String? = null,
 )
 
 fun AppSettings.qualityFor(platform: DownloadPlatform): Quality = when (platform) {

@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -13,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class MediaStoreWriter(private val context: Context) {
-    fun save(source: File, mime: String, suggestedName: String? = null, itemNumber: Int? = null): Uri {
+    fun save(source: File, mime: String, suggestedName: String? = null, itemNumber: Int? = null, folderUri: Uri? = null): Uri {
         val (directory, extension) = when (mime) {
             "image/jpeg" -> Environment.DIRECTORY_PICTURES to "jpg"
             "image/png" -> Environment.DIRECTORY_PICTURES to "png"
@@ -29,8 +30,52 @@ class MediaStoreWriter(private val context: Context) {
         }
         val name = SavedFileName.displayName(suggestedName, extension, itemNumber)
             ?: "Skachay_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}.$extension"
+        if (folderUri != null) return saveToFolder(source, mime, folderUri, name)
         return if (Build.VERSION.SDK_INT >= 29) saveScoped(source, mime, directory, name)
         else saveLegacy(source, mime, directory, name)
+    }
+
+    private fun saveToFolder(source: File, mime: String, treeUri: Uri, requestedName: String): Uri {
+        if (treeUri.scheme != "content") throw IOException("Invalid save folder")
+        val resolver = context.contentResolver
+        val treeDocumentId = try { DocumentsContract.getTreeDocumentId(treeUri) }
+        catch (_: IllegalArgumentException) { throw IOException("Invalid save folder") }
+        val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId)
+        val name = uniqueDocumentName(treeUri, treeDocumentId, requestedName)
+        val target = DocumentsContract.createDocument(resolver, parent, mime, name)
+            ?: throw IOException("Could not create file in selected folder")
+        try {
+            val output = resolver.openOutputStream(target, "w") ?: throw IOException("Could not open file in selected folder")
+            output.use { stream -> source.inputStream().use { it.copyTo(stream) } }
+            return target
+        } catch (error: Exception) {
+            try { DocumentsContract.deleteDocument(resolver, target) } catch (_: Exception) { }
+            throw error
+        }
+    }
+
+    private fun uniqueDocumentName(treeUri: Uri, treeDocumentId: String, requestedName: String): String {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocumentId)
+        val names = mutableSetOf<String>()
+        context.contentResolver.query(
+            children,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            if (nameIndex >= 0) while (cursor.moveToNext()) cursor.getString(nameIndex)?.let(names::add)
+        }
+        if (requestedName !in names) return requestedName
+        val dot = requestedName.lastIndexOf('.').takeIf { it > 0 } ?: requestedName.length
+        val base = requestedName.substring(0, dot)
+        val extension = requestedName.substring(dot)
+        for (index in 1..9999) {
+            val candidate = "$base ($index)$extension"
+            if (candidate !in names) return candidate
+        }
+        throw IOException("Could not reserve a unique file name")
     }
 
     private fun saveScoped(source: File, mime: String, directory: String, name: String): Uri {

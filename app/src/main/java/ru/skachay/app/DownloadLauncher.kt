@@ -6,6 +6,7 @@ import android.content.Intent
 import android.widget.Toast
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
+import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.YouTubePlaylistLink
 import ru.skachay.app.settings.AppSettings
@@ -22,12 +23,36 @@ internal fun startBatchDownloads(context: Context, urls: List<String>, settings:
     val batch = urls.distinct().take(20)
     if (batch.isEmpty()) return
     try {
-        batch.forEach { url ->
+        val playlists = batch.filter { YouTubePlaylistLink.isPurePlaylist(it) }
+        val regularLinks = batch.filterNot { YouTubePlaylistLink.isPurePlaylist(it) }
+        regularLinks.forEach { url ->
             val service = Intent(context, DownloadService::class.java).putExtra(DownloadService.EXTRA_URL, url)
             service.putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name)
-            context.startForegroundService(service)
+            settings.downloadFolderUri?.let {
+                DownloadFolderGrantRegistry.acquire(it)
+                service.putExtra(DownloadService.EXTRA_DOWNLOAD_FOLDER_URI, it)
+                service.putExtra(DownloadService.EXTRA_FOLDER_GRANT_LEASED, true)
+            }
+            try {
+                context.startForegroundService(service)
+            } catch (error: Exception) {
+                settings.downloadFolderUri?.let { DownloadFolderGrantRegistry.release(context, it) }
+                throw error
+            }
         }
-        Toast.makeText(context, "Добавлено загрузок: ${batch.size}", Toast.LENGTH_LONG).show()
+        if (playlists.isNotEmpty()) {
+            val choice = Intent(context, ChoiceActivity::class.java)
+                .putExtra(DownloadService.EXTRA_URL, playlists.first())
+                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(playlists.first()).name)
+                .putStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE, ArrayList(playlists.drop(1)))
+            if (context !is Activity) choice.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(choice)
+        }
+        val message = buildList {
+            if (regularLinks.isNotEmpty()) add("Добавлено загрузок: ${regularLinks.size}")
+            if (playlists.isNotEmpty()) add("Плейлистов на подтверждение: ${playlists.size}")
+        }.joinToString(" · ")
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     } catch (_: IllegalStateException) {
         Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
     } catch (_: SecurityException) {
@@ -53,6 +78,8 @@ internal fun startDownload(
     embedThumbnail: Boolean = false,
     allowPlaylist: Boolean = false,
     playlistAudioOnly: Boolean = false,
+    downloadFolderUri: String? = null,
+    overrideDownloadFolder: Boolean = false,
 ) {
     if (YouTubePlaylistLink.isPurePlaylist(url) && !allowPlaylist) {
         val choice = Intent(context, ChoiceActivity::class.java).putExtra(DownloadService.EXTRA_URL, url)
@@ -78,12 +105,23 @@ internal fun startDownload(
     service.putExtra(DownloadService.EXTRA_EMBED_THUMBNAIL, embedThumbnail)
     service.putExtra(DownloadService.EXTRA_ALLOW_PLAYLIST, allowPlaylist)
     service.putExtra(DownloadService.EXTRA_PLAYLIST_AUDIO_ONLY, playlistAudioOnly)
+    downloadFolderUri?.let {
+        DownloadFolderGrantRegistry.acquire(it)
+        service.putExtra(DownloadService.EXTRA_DOWNLOAD_FOLDER_URI, it)
+        service.putExtra(DownloadService.EXTRA_FOLDER_GRANT_LEASED, true)
+    }
+    service.putExtra(DownloadService.EXTRA_OVERRIDE_DOWNLOAD_FOLDER, overrideDownloadFolder)
     try {
         context.startForegroundService(service)
         Toast.makeText(context, "Скачиваю… результат будет в уведомлении", Toast.LENGTH_LONG).show()
     } catch (_: IllegalStateException) {
+        downloadFolderUri?.let { DownloadFolderGrantRegistry.release(context, it) }
         Toast.makeText(context, "Не удалось начать скачивание. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
     } catch (_: SecurityException) {
+        downloadFolderUri?.let { DownloadFolderGrantRegistry.release(context, it) }
+        Toast.makeText(context, "Не удалось начать скачивание. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
+    } catch (_: Exception) {
+        downloadFolderUri?.let { DownloadFolderGrantRegistry.release(context, it) }
         Toast.makeText(context, "Не удалось начать скачивание. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
     }
 }

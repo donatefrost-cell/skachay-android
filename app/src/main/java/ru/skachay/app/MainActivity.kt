@@ -407,7 +407,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
             SettingsSection("Файлы", R.drawable.ic_folder) {
                 Column {
-                    SettingsRow("Папка сохранения", "Фото, Movies и Music · Скачай", R.drawable.ic_folder)
+                    SettingsRow("Папка сохранения", "По умолчанию: фото, видео и музыка · Скачай", R.drawable.ic_folder)
                     SectionDivider()
                     SettingsRow("Имя файла", "Использовать название публикации", R.drawable.ic_quality)
                     SectionDivider()

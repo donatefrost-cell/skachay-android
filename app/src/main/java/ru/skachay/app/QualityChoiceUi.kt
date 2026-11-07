@@ -327,6 +327,7 @@ internal fun AdvancedFormatsPage(
     videoOnly: Boolean,
     fileName: String,
     fileNameInvalid: Boolean,
+    saveFolderLabel: String,
     subtitleLanguage: String?,
     subtitleAutomatic: Boolean,
     embedSubtitles: Boolean,
@@ -337,6 +338,8 @@ internal fun AdvancedFormatsPage(
     onSelectFormat: (AvailableFormat) -> Unit,
     onVideoOnlyChanged: (Boolean) -> Unit,
     onFileNameChanged: (String) -> Unit,
+    onChooseSaveFolder: () -> Unit,
+    onResetSaveFolder: () -> Unit,
     onSubtitleChanged: (String?, Boolean) -> Unit,
     onEmbedSubtitlesChanged: (Boolean) -> Unit,
     onEmbedThumbnailChanged: (Boolean) -> Unit,
@@ -401,7 +404,14 @@ internal fun AdvancedFormatsPage(
                 item {
                     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Text("Папка сохранения", style = MaterialTheme.typography.titleSmall)
-                        Text("Галерея · папка «Скачай»", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(saveFolderLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.material3.TextButton(onClick = onChooseSaveFolder) { Text("Выбрать папку") }
+                            if (saveFolderLabel != DEFAULT_SAVE_FOLDER_LABEL) {
+                                androidx.compose.material3.TextButton(onClick = onResetSaveFolder) { Text("По умолчанию") }
+                            }
+                        }
                     }
                 }
                 item { Text("Субтитры", style = MaterialTheme.typography.titleSmall) }
@@ -421,6 +431,8 @@ internal fun AdvancedFormatsPage(
         }
     }
 }
+
+internal const val DEFAULT_SAVE_FOLDER_LABEL = "Фото, видео и музыка · папка «Скачай»"
 
 @Composable
 private fun AdvancedFormatRow(context: Context, preview: VideoPreview, format: AvailableFormat, selected: Boolean, onClick: () -> Unit) {

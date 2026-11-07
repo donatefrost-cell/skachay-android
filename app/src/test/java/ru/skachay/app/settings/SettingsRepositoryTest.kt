@@ -30,6 +30,7 @@ class SettingsRepositoryTest {
             assertEquals(null, settings.lastVideoQualityTier)
             assertEquals(null, settings.lastAudioQualityKind)
             assertEquals(false, settings.lastQualityWasAudio)
+            assertEquals(null, settings.downloadFolderUri)
             assertTrue(settings.largeMode)
             assertFalse(settings.wifiOnly)
             assertEquals(Quality.AUTO, settings.qualityFor(DownloadPlatform.YOUTUBE))
@@ -52,6 +53,7 @@ class SettingsRepositoryTest {
             repository.setVideoBitrateLimit(VideoBitrateLimit.K5000)
             repository.setRememberQualityChoice(true)
             repository.setLastQualityChoices("ECONOMICAL", "COMPACT_MP3", wasAudio = true)
+            repository.setDownloadFolderUri("content://com.example.documents/tree/primary%3AMovies")
             val settings = repository.settings.first()
             assertTrue(settings.onboardingComplete)
             assertEquals(UserMode.ADVANCED, settings.mode)
@@ -68,6 +70,7 @@ class SettingsRepositoryTest {
             assertEquals("ECONOMICAL", settings.lastVideoQualityTier)
             assertEquals("COMPACT_MP3", settings.lastAudioQualityKind)
             assertEquals(true, settings.lastQualityWasAudio)
+            assertEquals("content://com.example.documents/tree/primary%3AMovies", settings.downloadFolderUri)
         }
     }
 
