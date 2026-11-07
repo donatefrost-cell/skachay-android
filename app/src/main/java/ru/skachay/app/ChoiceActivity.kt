@@ -396,6 +396,11 @@ private fun PreviewCard(cached: CachedPreview, source: String) {
     val thumbnail by produceState<Bitmap?>(initialValue = null, preview.thumbnailUrl) {
         value = preview.thumbnailUrl?.let { url -> withContext(Dispatchers.IO) { loadThumbnail(url) } }
     }
+    PreviewCardContent(preview, source, thumbnail)
+}
+
+@Composable
+private fun PreviewCardContent(preview: VideoPreview, source: String, thumbnail: Bitmap?) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))) {
             if (thumbnail != null) Image(thumbnail!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -446,7 +451,7 @@ internal fun ChoiceSheetPreview() {
             ) {
                 Box(Modifier.size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant).align(Alignment.CenterHorizontally))
                 Text("Скачать", style = MaterialTheme.typography.headlineSmall)
-                PreviewCard(sample, "YouTube")
+                PreviewCardContent(sample.preview, "YouTube", thumbnail = null)
                 Text("Качество", style = MaterialTheme.typography.titleMedium)
                 ChoiceRow("1080p · MP4 · ~48 МБ", selected = false, onClick = {})
                 ChoiceRow("720p · MP4 · ~28 МБ", selected = true, onClick = {})
