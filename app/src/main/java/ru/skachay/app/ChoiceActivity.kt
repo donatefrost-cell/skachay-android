@@ -487,7 +487,9 @@ private fun formatLabel(context: Context, format: AvailableFormat, durationSecon
     return parts.joinToString(" · ")
 }
 
-private val thumbnailClient = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+private val thumbnailClient: OkHttpClient by lazy {
+    OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+}
 
 private fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(), maxDimension: Int = 600): Bitmap? = try {
     val request = Request.Builder().url(url).apply { headers.forEach { (name, value) -> header(name, value) } }.build()
