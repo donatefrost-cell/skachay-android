@@ -21,10 +21,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Установить Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
-      - name: Список screenshot-задач
-        run: ./gradlew --no-daemon :app:tasks --all --console=plain
       - name: Проверить и собрать
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateScreenshotTestDefaultDebugTestSuite
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateDebugScreenshotTest
       - uses: actions/upload-artifact@v4
         with:
           name: skachay-debug
@@ -33,7 +31,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: skachay-screenshots
-          path: app/src/screenshotTestDefaultDebug/reference/
+          path: app/src/screenshotTestDebug/reference/
           if-no-files-found: error
 
   release:

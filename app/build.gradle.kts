@@ -1,9 +1,7 @@
-import com.android.build.api.variant.HasHostTestsBuilder
-import com.android.build.api.variant.HostTestBuilder
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.android.compose.screenshot") version "0.0.1-alpha16"
 }
 
 val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.0").get().removePrefix("v")
@@ -60,18 +58,6 @@ android {
         compose = true
     }
 
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
-        screenshotTests.create("screenshotTest") {
-            engineVersion = "0.0.1-alpha16"
-            targetVariants.add("debug")
-            dependencies {
-                implementation("androidx.compose.ui:ui-tooling:1.12.1")
-                implementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
-            }
-        }
-    }
-
     sourceSets["main"].assets.srcDir(rootProject.layout.projectDirectory.dir("recipe-defaults"))
 
     packaging {
@@ -81,14 +67,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-}
-
-androidComponents {
-    beforeVariants(selector().all()) { variant ->
-        if (variant.buildType == "release") {
-            (variant as HasHostTestsBuilder).hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
-        }
     }
 }
 
@@ -105,6 +83,8 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    screenshotTestImplementation("androidx.compose.ui:ui-tooling:1.12.1")
+    screenshotTestImplementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260814")
     androidTestImplementation("androidx.test:runner:1.7.0")
