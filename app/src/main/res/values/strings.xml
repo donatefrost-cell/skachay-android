@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Скачай</string>
+    <string name="shortcut_download_clipboard">Скачать из буфера</string>
+    <string name="shortcut_download_clipboard_long">Открыть ссылку из буфера в Скачай</string>
 </resources>

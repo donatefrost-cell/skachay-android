@@ -89,11 +89,13 @@ import kotlinx.coroutines.withContext
 import ru.skachay.app.download.EngineUpdateResult
 import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.settings.AppSettings
+import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.EngineChannel
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
+import ru.skachay.app.settings.qualityFor
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
 import ru.skachay.app.diagnostics.DiagnosticsScreen
@@ -146,15 +148,74 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun WelcomeScreen(onChoose: (UserMode) -> Unit) {
+    var page by remember { mutableIntStateOf(0) }
     Page {
-        Text("Скачай", style = MaterialTheme.typography.headlineLarge)
-        Text("Как вам удобнее?", style = MaterialTheme.typography.headlineMedium)
-        Text("Режим можно изменить в настройках в любое время.")
-        Button(onClick = { onChoose(UserMode.SIMPLE) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
-            Column { Text("Просто", style = MaterialTheme.typography.titleLarge); Text("Всё необходимое — автоматически") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Скачай", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
+            if (page > 0) IconButton(onClick = { page-- }, modifier = Modifier.size(56.dp)) {
+                Icon(painterResource(R.drawable.ic_back), contentDescription = "Назад", tint = MaterialTheme.colorScheme.onSurface)
+            }
         }
-        FilledTonalButton(onClick = { onChoose(UserMode.ADVANCED) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
-            Column { Text("Для опытных", style = MaterialTheme.typography.titleLarge); Text("Больше настроек скачивания") }
+        if (page < 3) {
+            Text("Знакомство · ${page + 1} из 3", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(
+                listOf("Найдите видео или фото", "Откройте меню «Поделиться»", "Выберите «Скачай»")[page],
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            OnboardingIllustration(page)
+            Text(
+                listOf(
+                    "Откройте публикацию, которую хотите сохранить.",
+                    "Нажмите «Поделиться» в приложении с видео или фотографией.",
+                    "«Скачай» получит ссылку и покажет доступные варианты.",
+                )[page],
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(onClick = { page++ }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Text(if (page == 2) "Попробовать" else "Далее")
+            }
+            TextButton(onClick = { page = 3 }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Пропустить") }
+        } else {
+            Text("Как вам удобнее?", style = MaterialTheme.typography.headlineMedium)
+            Text("Режим можно изменить в настройках в любое время.")
+            Button(onClick = { onChoose(UserMode.SIMPLE) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
+                Column { Text("Просто", style = MaterialTheme.typography.titleLarge); Text("Всё необходимое — автоматически") }
+            }
+            FilledTonalButton(onClick = { onChoose(UserMode.ADVANCED) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
+                Column { Text("Для опытных", style = MaterialTheme.typography.titleLarge); Text("Больше настроек скачивания") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingIllustration(step: Int) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        painterResource(if (step == 0) R.drawable.ic_download else R.drawable.ic_share),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(18.dp).size(40.dp),
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (step == 0) "Видео или фото" else "Поделиться", style = MaterialTheme.typography.titleLarge)
+                    Text(if (step == 0) "Откройте публикацию" else "Выберите приложение", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_download), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Text("Скачай", Modifier.padding(start = 16.dp).weight(1f), style = MaterialTheme.typography.titleMedium)
+                Text("Готово", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }
@@ -164,10 +225,10 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
     val context = LocalContext.current
     var showLink by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf("") }
-    val clipboardUrl = remember(refresh) {
+    val clipboardUrls = remember(refresh) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
-        SharedUrl.firstIn(text)
+        SharedUrl.allIn(text).take(20)
     }
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -185,22 +246,31 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
                 Text("3. Выберите «Скачай»")
             }
         }
-        clipboardUrl?.let { url ->
+        if (clipboardUrls.isNotEmpty()) {
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Скачать ссылку из буфера?", style = MaterialTheme.typography.titleMedium)
-                    Text(url, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                    Text(
+                        if (clipboardUrls.size == 1) "Скачать ссылку из буфера?" else "В буфере ${clipboardUrls.size} ссылок",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(clipboardUrls.take(3).joinToString("\n"), style = MaterialTheme.typography.bodySmall, maxLines = 3)
                     FilledTonalButton(onClick = {
-                        context.startActivity(Intent(context, ChoiceActivity::class.java)
-                            .putExtra(DownloadService.EXTRA_URL, url)
-                            .putExtra(DownloadService.EXTRA_QUALITY, settings.quality.name))
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Открыть выбор") }
+                        if (clipboardUrls.size == 1) {
+                            context.startActivity(Intent(context, ChoiceActivity::class.java)
+                                .putExtra(DownloadService.EXTRA_URL, clipboardUrls.single())
+                                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(clipboardUrls.single()).name))
+                        } else {
+                            startBatchDownloads(context, clipboardUrls, settings)
+                        }
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                        Text(if (clipboardUrls.size == 1) "Открыть выбор" else "Скачать ${clipboardUrls.size} ссылок")
+                    }
                 }
             }
         }
         Button(onClick = {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            link = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+            link = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().take(20_000)
             showLink = true
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Вставить ссылку") }
         PermissionPrompt()
@@ -210,14 +280,34 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
         AlertDialog(
             onDismissRequest = { showLink = false },
             title = { Text("Ссылка на видео или фото") },
-            text = { OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Ссылка") }, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = link,
+                        onValueChange = { link = it.take(20_000) },
+                        label = { Text("Ссылки") },
+                        supportingText = { Text("Можно вставить несколько ссылок — по одной на строку.") },
+                        minLines = 3,
+                        maxLines = 8,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val count = SharedUrl.allIn(link).size
+                    if (count > 1) Text("Будет добавлено: ${count.coerceAtMost(20)} загрузок", style = MaterialTheme.typography.bodyMedium)
+                }
+            },
             confirmButton = { TextButton(enabled = SharedUrl.firstIn(link) != null, onClick = {
-                val url = SharedUrl.firstIn(link) ?: return@TextButton
+                val urls = SharedUrl.allIn(link).take(20)
+                if (urls.isEmpty()) return@TextButton
+                if (urls.size > 1) {
+                    startBatchDownloads(context, urls, settings)
+                    showLink = false
+                    return@TextButton
+                }
                 context.startActivity(Intent(context, ChoiceActivity::class.java)
-                    .putExtra(DownloadService.EXTRA_URL, url)
-                    .putExtra(DownloadService.EXTRA_QUALITY, settings.quality.name))
+                    .putExtra(DownloadService.EXTRA_URL, urls.single())
+                    .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(urls.single()).name))
                 showLink = false
-            }) { Text("Продолжить") } },
+            }) { Text(if (SharedUrl.allIn(link).size > 1) "Скачать список" else "Продолжить") } },
             dismissButton = { TextButton(onClick = { showLink = false }) { Text("Отмена") } },
         )
     }
@@ -228,6 +318,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
 private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
     var showQualitySheet by remember { mutableStateOf(false) }
+    var showPlatformQualitySheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -264,6 +355,10 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                     SettingsRow("Предел разрешения", settings.quality.label, R.drawable.ic_quality,
                         trailing = { Text("Изменить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
                         onClick = { showQualitySheet = true })
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingsRow("Качество по приложениям", "YouTube · Instagram · TikTok", R.drawable.ic_quality,
+                        trailing = { Text("Настроить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
+                        onClick = { showPlatformQualitySheet = true })
                 } else if (settings.quality !in listOf(Quality.AUTO, Quality.BEST, Quality.P2160, Quality.MAX)) {
                     Text("Текущий предел: ${settings.quality.label}", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -334,6 +429,46 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         trailing = { Text(if (settings.quality == preset) "Выбрано" else "", color = MaterialTheme.colorScheme.primary) },
                         onClick = { scope.launch { repository.setQuality(preset) }; showQualitySheet = false })
                 }
+            }
+        }
+    }
+    if (showPlatformQualitySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showPlatformQualitySheet = false },
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Качество по приложениям", style = MaterialTheme.typography.headlineSmall)
+                Text("Для YouTube можно задать предел разрешения. Instagram и TikTok сохраняются в исходном качестве, доступном по ссылке.", style = MaterialTheme.typography.bodyMedium)
+                PlatformQualityControl("YouTube", settings.qualityFor(DownloadPlatform.YOUTUBE)) {
+                    scope.launch { repository.setPlatformQuality(DownloadPlatform.YOUTUBE, it) }
+                }
+                SettingsRow("Instagram", "Исходное качество публикации", R.drawable.ic_quality)
+                SettingsRow("TikTok", "Исходное качество публикации", R.drawable.ic_quality)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlatformQualityControl(title: String, selected: Quality, onSelect: (Quality) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberHorizontalScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Quality.AUTO, Quality.P360, Quality.P480, Quality.P720, Quality.P1080, Quality.P1440, Quality.P2160, Quality.MAX).forEach { quality ->
+                FilterChip(
+                    selected = selected == quality,
+                    onClick = { onSelect(quality) },
+                    label = { Text(when (quality) {
+                        Quality.AUTO -> "Авто 720p"
+                        Quality.MAX -> "Максимум"
+                        Quality.P2160 -> "4K"
+                        else -> quality.label.removePrefix("До ")
+                    }) },
+                )
             }
         }
     }

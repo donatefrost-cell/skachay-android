@@ -33,6 +33,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 engineChannel = enumOrDefault(preferences[ENGINE_CHANNEL], EngineChannel.STABLE),
                 largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
                 wifiOnly = preferences[WIFI_ONLY] ?: false,
+                youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
             )
         }
 
@@ -58,6 +59,14 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
     suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
     suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
+    suspend fun setPlatformQuality(platform: DownloadPlatform, quality: Quality) {
+        store.edit { preferences ->
+            preferences[when (platform) {
+                DownloadPlatform.YOUTUBE -> YOUTUBE_QUALITY
+                DownloadPlatform.OTHER -> QUALITY
+            }] = quality.name
+        }
+    }
 
     companion object {
         private val ONBOARDING = booleanPreferencesKey("onboarding_complete")
@@ -70,6 +79,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val ENGINE_CHANNEL = stringPreferencesKey("engine_channel")
         private val LARGE_MODE = booleanPreferencesKey("large_mode")
         private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
+        private val YOUTUBE_QUALITY = stringPreferencesKey("youtube_quality")
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 

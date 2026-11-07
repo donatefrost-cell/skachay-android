@@ -27,6 +27,8 @@ class SettingsRepositoryTest {
             assertEquals(2, settings.retries)
             assertTrue(settings.largeMode)
             assertFalse(settings.wifiOnly)
+            assertEquals(Quality.AUTO, settings.qualityFor(DownloadPlatform.YOUTUBE))
+            assertEquals(Quality.AUTO, settings.qualityFor(DownloadPlatform.OTHER))
         }
     }
 
@@ -78,6 +80,17 @@ class SettingsRepositoryTest {
         val store = MemoryStore()
         store.updateData { preferences -> preferences.toMutablePreferences().apply { this[stringPreferencesKey("engine_channel")] = "unknown" } }
         assertEquals(EngineChannel.STABLE, SettingsRepository(store).settings.first().engineChannel)
+    }
+
+    @Test
+    fun platformQualityOverridesDefaultOnlyForThatPlatform() = runBlocking {
+        withRepository { repository ->
+            repository.setQuality(Quality.P1080)
+            repository.setPlatformQuality(DownloadPlatform.YOUTUBE, Quality.P2160)
+            val settings = repository.settings.first()
+            assertEquals(Quality.P2160, settings.qualityFor(DownloadPlatform.YOUTUBE))
+            assertEquals(Quality.P1080, settings.qualityFor(DownloadPlatform.OTHER))
+        }
     }
 
     private suspend fun withRepository(block: suspend (SettingsRepository) -> Unit) {

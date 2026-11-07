@@ -57,9 +57,9 @@ class ShareActivity : Activity() {
                         }
                         startActivity(Intent(this@ShareActivity, ChoiceActivity::class.java)
                             .putExtra(DownloadService.EXTRA_URL, url)
-                            .putExtra(DownloadService.EXTRA_QUALITY, settings.quality.name))
+                            .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name))
                     } else {
-                        startDownload(this@ShareActivity, url)
+                        startDownload(this@ShareActivity, url, settings.qualityForUrl(url))
                     }
                 } finally {
                     pending--

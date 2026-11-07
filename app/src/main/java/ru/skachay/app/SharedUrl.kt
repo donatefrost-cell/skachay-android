@@ -5,20 +5,21 @@ import java.net.URI
 object SharedUrl {
     private val linkPattern = Regex("https?://[^\\s<>\"']+", RegexOption.IGNORE_CASE)
 
-    fun firstIn(text: String?): String? {
-        if (text == null) return null
-        for (match in linkPattern.findAll(text)) {
+    fun firstIn(text: String?): String? = allIn(text).firstOrNull()
+
+    fun allIn(text: String?): List<String> {
+        if (text == null) return emptyList()
+        return linkPattern.findAll(text).mapNotNull { match ->
             val candidate = trimPunctuation(match.value)
             val uri = try {
                 URI(candidate)
             } catch (_: IllegalArgumentException) {
-                continue
+                return@mapNotNull null
             } catch (_: java.net.URISyntaxException) {
-                continue
+                return@mapNotNull null
             }
-            if (uri.host != null && uri.userInfo == null) return candidate
-        }
-        return null
+            candidate.takeIf { uri.host != null && uri.userInfo == null }
+        }.distinct().toList()
     }
 
     private fun trimPunctuation(value: String): String {

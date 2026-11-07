@@ -5,7 +5,33 @@ import android.content.Intent
 import android.widget.Toast
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
+import ru.skachay.app.download.SourceType
+import ru.skachay.app.settings.AppSettings
+import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.qualityFor
+
+internal fun AppSettings.qualityForUrl(url: String): Quality = qualityFor(when {
+    SourceType.isYouTube(url) -> DownloadPlatform.YOUTUBE
+    else -> DownloadPlatform.OTHER
+})
+
+internal fun startBatchDownloads(context: Context, urls: List<String>, settings: AppSettings) {
+    val batch = urls.distinct().take(20)
+    if (batch.isEmpty()) return
+    try {
+        batch.forEach { url ->
+            val service = Intent(context, DownloadService::class.java).putExtra(DownloadService.EXTRA_URL, url)
+            service.putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name)
+            context.startForegroundService(service)
+        }
+        Toast.makeText(context, "Добавлено загрузок: ${batch.size}", Toast.LENGTH_LONG).show()
+    } catch (_: IllegalStateException) {
+        Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
+    } catch (_: SecurityException) {
+        Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
+    }
+}
 
 internal fun startDownload(
     context: Context,

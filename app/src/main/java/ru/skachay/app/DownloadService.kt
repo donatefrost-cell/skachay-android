@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.ConnectivityManager
@@ -60,6 +61,8 @@ import ru.skachay.app.diagnostics.providerFor
 import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.SocialSelection
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 private class SocialPreviewUnavailable : IOException()
 private class WifiOnlyRequiredException : IOException()
@@ -72,6 +75,9 @@ class DownloadService : Service() {
     private val tiktok = TikTokResolver()
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
+    private val thumbnailClient by lazy {
+        OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
+    }
     private val notificationLargeIcon by lazy {
         Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888).also { bitmap ->
             val canvas = Canvas(bitmap)
@@ -113,6 +119,7 @@ class DownloadService : Service() {
             running++
             latestStartId = startId
         }
+        updateGroupSummary()
         val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
         val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
@@ -124,7 +131,7 @@ class DownloadService : Service() {
                 executor.corePoolSize = settings.parallelDownloads
                 executor.execute {
                     try {
-                        download(url, id, settings.copy(quality = overrideQuality ?: settings.quality), usePreview, formatId, videoOnly,
+                        download(url, id, settings.copy(quality = overrideQuality ?: settings.qualityForUrl(url)), usePreview, formatId, videoOnly,
                             socialPreviewId, selectedItems, fileName, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles)
                     } finally {
                         finishJob()
@@ -145,13 +152,15 @@ class DownloadService : Service() {
     }
 
     private fun finishJob() {
-        synchronized(lock) {
+        val active = synchronized(lock) {
             running--
             if (running == 0) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelfResult(latestStartId)
             }
+            running
         }
+        updateGroupSummary(active)
     }
 
     private fun download(
@@ -186,6 +195,8 @@ class DownloadService : Service() {
         val timer = StageTimer(SystemClock::elapsedRealtime)
         val transferStats = TransferStats(SystemClock::elapsedRealtime)
         var directory: File? = null
+        var mediaTitle: String? = null
+        var thumbnailUrl: String? = null
         try {
             if (settings.wifiOnly && !wifiAvailable()) throw WifiOnlyRequiredException()
             if (socialRequested && chosenItems == null) throw SocialPreviewUnavailable()
@@ -204,7 +215,9 @@ class DownloadService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    notifySafely(FOREGROUND_ID, progressNotification(percent, url, id, settings.quality, fileName, transferStats.snapshot()))
+                    val notification = progressNotification(percent, url, id, settings.quality, fileName, transferStats.snapshot(), mediaTitle)
+                    startForeground(FOREGROUND_ID, notification)
+                    if (synchronized(lock) { running > 1 }) notifySafely(id, notification)
                 }
             }
             val detailedReport: (YtDlpProgress) -> Unit = { progress ->
@@ -234,6 +247,9 @@ class DownloadService : Service() {
                     val cached = if (usePreview || formatId != null) {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
                     } else PreviewStore.getOrFetch(this, url)
+                    mediaTitle = cached.preview.title.take(100)
+                    thumbnailUrl = cached.preview.thumbnailUrl
+                    report(null)
                     val extractionElapsed = (SystemClock.elapsedRealtime() - extractionStarted).coerceAtLeast(0)
                     timer.record(DownloadStage.EXTRACTION, PreviewStore.extractionDuration(url) ?: extractionElapsed)
                     timer.record(DownloadStage.RUNTIME_START, YtDlpRuntime.startupDurationMs() ?: 0L)
@@ -318,9 +334,11 @@ class DownloadService : Service() {
                 saved.forEach { (itemUri, _) -> putString(itemUri.toString(), url) }
             }.apply()
             transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
-            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, timer.finish(),
+            val durations = timer.finish()
+            DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, durations,
                 transfer = transferStats.snapshot(), vpnActive = vpnActive())
-            notifySafely(id, resultNotification("Готово", "Нажмите, чтобы открыть", uri, mime, url, id, settings.quality, fileName))
+            val thumbnail = loadNotificationThumbnail(thumbnailUrl)
+            notifySafely(id, resultNotification(mediaTitle ?: "Готово", "Готово · нажмите, чтобы открыть", uri, mime, url, id, settings.quality, fileName, thumbnail))
         } catch (error: Exception) {
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
@@ -380,7 +398,10 @@ class DownloadService : Service() {
         false
     }
 
-    private fun progressNotification(percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?, transfer: TransferSnapshot? = null): Notification {
+    private fun progressNotification(
+        percent: Int?, url: String, id: Int, quality: Quality?, fileName: String?,
+        transfer: TransferSnapshot? = null, title: String? = null,
+    ): Notification {
         val text = buildList {
             percent?.let { add("$it%") }
             transfer?.averageBytesPerSecond?.takeIf { it > 0 }?.let { add(formatSpeed(it)) }
@@ -392,8 +413,10 @@ class DownloadService : Service() {
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
-            .setContentTitle(if (percent == null) "Получаю сведения…" else "Скачиваю…")
+            .setContentTitle(title ?: if (percent == null) "Получаю сведения…" else "Скачиваю…")
             .setContentText(text)
+            .setGroup(GROUP_KEY)
+            .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, percent ?: 0, percent == null)
@@ -402,19 +425,33 @@ class DownloadService : Service() {
         return builder.build()
     }
 
-    private fun resultNotification(title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int, quality: Quality?, fileName: String?): Notification {
+    private fun resultNotification(
+        title: String, message: String, uri: Uri?, mime: String?, url: String, id: Int,
+        quality: Quality?, fileName: String?, thumbnail: Bitmap? = null,
+    ): Notification {
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_download)
-            .setLargeIcon(notificationLargeIcon)
+            .setLargeIcon(thumbnail ?: notificationLargeIcon)
             .setContentTitle(title)
             .setContentText(message)
+            .setGroup(GROUP_KEY)
+            .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
             .setColor(0xFF534AB7.toInt())
             .setAutoCancel(true)
+        thumbnail?.let { builder.setStyle(Notification.BigPictureStyle().bigPicture(it).bigLargeIcon(notificationLargeIcon)) }
         if (uri != null && mime != null) {
             val open = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             val pending = PendingIntent.getActivity(this, uri.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.setContentIntent(pending)
+            builder.addAction(Notification.Action.Builder(null, "Открыть", pending).build())
+            val share = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
+            share.clipData = android.content.ClipData.newUri(contentResolver, "Скачай", uri)
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            val chooser = Intent.createChooser(share, "Поделиться файлом").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val sharePending = PendingIntent.getActivity(this, id + SHARE_REQUEST_OFFSET, chooser,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(Notification.Action.Builder(null, "Поделиться", sharePending).build())
         }
         addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
@@ -469,6 +506,8 @@ class DownloadService : Service() {
             .setContentTitle("Не получилось скачать")
             .setContentText(message)
             .setStyle(Notification.BigTextStyle().bigText(message))
+            .setGroup(GROUP_KEY)
+            .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
             .setColor(0xFF534AB7.toInt())
             .addAction(Notification.Action.Builder(null, if (chooseAgain) "Выбрать заново" else "Повторить", pending).build())
             .setAutoCancel(true)
@@ -481,6 +520,48 @@ class DownloadService : Service() {
             notifications.notify(id, notification)
         } catch (_: SecurityException) {
             // Android can hide notifications if the user declined permission.
+        }
+    }
+
+    private fun updateGroupSummary(activeCount: Int = synchronized(lock) { running }) {
+        if (activeCount <= 1) {
+            notifications.cancel(GROUP_SUMMARY_ID)
+            return
+        }
+        val summary = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_download)
+            .setLargeIcon(notificationLargeIcon)
+            .setContentTitle("Скачай")
+            .setContentText("Активных загрузок: $activeCount")
+            .setGroup(GROUP_KEY)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+            .setColor(0xFF534AB7.toInt())
+            .setOnlyAlertOnce(true)
+            .build()
+        notifySafely(GROUP_SUMMARY_ID, summary)
+    }
+
+    private fun loadNotificationThumbnail(url: String?): Bitmap? {
+        if (url == null) return null
+        return try {
+            val request = Request.Builder().url(url).header("User-Agent", "Skachay/Android").build()
+            thumbnailClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful || response.body.contentLength() !in 0..2_000_000) return null
+                val bytes = response.body.bytes()
+                if (bytes.size > 2_000_000) return null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                if (bounds.outWidth !in 1..4096 || bounds.outHeight !in 1..4096) return null
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 384) sample *= 2
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                })
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -527,5 +608,8 @@ class DownloadService : Service() {
         const val EXTRA_EMBED_SUBTITLES = "embed_subtitles"
         private const val CHANNEL = "downloads"
         private const val FOREGROUND_ID = 1
+        private const val GROUP_SUMMARY_ID = Int.MAX_VALUE
+        private const val GROUP_KEY = "ru.skachay.app.DOWNLOADS"
+        private const val SHARE_REQUEST_OFFSET = 10_000
     }
 }

@@ -19,11 +19,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,23 +44,54 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import java.io.FileNotFoundException
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class RecentFile(val uri: Uri, val title: String, val source: String, val size: Long, val date: Long)
+private enum class RecentFilter(val label: String) { ALL("Все"), VIDEO("Видео"), PHOTO("Фото"), AUDIO("Аудио") }
+private data class RecentFile(val uri: Uri, val title: String, val source: String, val size: Long, val date: Long, val mimeType: String)
 
 @Composable
 internal fun RecentMedia(refresh: Int) {
     val context = LocalContext.current
     var changed by remember { mutableStateOf(0) }
     var remove by remember { mutableStateOf<RecentFile?>(null) }
+    var filter by remember { mutableStateOf(RecentFilter.ALL) }
+    var query by remember { mutableStateOf("") }
     val files by produceState<List<RecentFile>>(initialValue = emptyList(), refresh, changed) {
         value = withContext(Dispatchers.IO) { recentFiles(context) }
+    }
+    val visibleFiles = remember(files, filter, query) {
+        files.filter { file ->
+            val typeMatches = when (filter) {
+                RecentFilter.ALL -> true
+                RecentFilter.VIDEO -> file.mimeType.startsWith("video/")
+                RecentFilter.PHOTO -> file.mimeType.startsWith("image/")
+                RecentFilter.AUDIO -> file.mimeType.startsWith("audio/")
+            }
+            val textMatches = query.isBlank() || file.title.contains(query.trim(), ignoreCase = true) || file.source.contains(query.trim(), ignoreCase = true)
+            typeMatches && textMatches
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Недавние", style = MaterialTheme.typography.titleLarge)
         if (files.isEmpty()) Text("Здесь появятся сохранённые файлы.", style = MaterialTheme.typography.bodyMedium)
-        files.take(20).forEach { file ->
+        else {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it.take(100) },
+                label = { Text("Поиск файлов") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RecentFilter.entries.forEach { option ->
+                    FilterChip(selected = filter == option, onClick = { filter = option }, label = { Text(option.label) })
+                }
+            }
+            if (visibleFiles.isEmpty()) Text("По этому фильтру файлов нет.", style = MaterialTheme.typography.bodyMedium)
+        }
+        visibleFiles.take(20).forEach { file ->
             Row(Modifier.fillMaxWidth().heightIn(min = 72.dp), verticalAlignment = Alignment.CenterVertically) {
                 val thumbnail by produceState<Bitmap?>(initialValue = null, file.uri) {
                     value = withContext(Dispatchers.IO) { loadThumbnail(context, file.uri) }
@@ -67,7 +102,7 @@ internal fun RecentMedia(refresh: Int) {
                 }
                 Column(Modifier.weight(1f).clickable { openFile(context, file.uri) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(file.title, maxLines = 1, style = MaterialTheme.typography.titleSmall)
-                    Text("${file.source} · ${Formatter.formatShortFileSize(context, file.size)}", style = MaterialTheme.typography.bodySmall)
+                    Text("${file.source} · ${Formatter.formatShortFileSize(context, file.size)} · ${dateLabel(file.date)}", style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick = { remove = file }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Удалить") }
             }
@@ -107,11 +142,21 @@ private fun recentFiles(context: Context): List<RecentFile> {
         try {
             context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_ADDED), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
-                RecentFile(uri, cursor.getString(0) ?: "Сохранённый файл", Uri.parse(source).host ?: "Скачай", cursor.getLong(1), cursor.getLong(2))
+                RecentFile(
+                    uri,
+                    cursor.getString(0) ?: "Сохранённый файл",
+                    Uri.parse(source).host ?: "Скачай",
+                    cursor.getLong(1),
+                    cursor.getLong(2),
+                    context.contentResolver.getType(uri).orEmpty(),
+                )
             }
         } catch (_: SecurityException) { null }
     }.sortedByDescending { it.date }
 }
+
+private fun dateLabel(seconds: Long): String = java.text.SimpleDateFormat("d MMM, HH:mm", Locale.forLanguageTag("ru"))
+    .format(java.util.Date(seconds * 1000))
 
 private fun loadThumbnail(context: Context, uri: Uri): Bitmap? = try {
     if (Build.VERSION.SDK_INT >= 29) context.contentResolver.loadThumbnail(uri, Size(112, 112), null)

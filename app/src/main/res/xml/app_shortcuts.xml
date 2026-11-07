@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="clipboard_download"
+        android:enabled="true"
+        android:icon="@drawable/ic_download"
+        android:shortcutShortLabel="@string/shortcut_download_clipboard"
+        android:shortcutLongLabel="@string/shortcut_download_clipboard_long">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="ru.skachay.app"
+            android:targetClass="ru.skachay.app.MainActivity" />
+    </shortcut>
+</shortcuts>

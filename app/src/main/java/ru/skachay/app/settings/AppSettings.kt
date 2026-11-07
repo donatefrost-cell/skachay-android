@@ -1,6 +1,7 @@
 package ru.skachay.app.settings
 
 enum class UserMode { SIMPLE, ADVANCED }
+enum class DownloadPlatform { YOUTUBE, OTHER }
 enum class Quality(val maximumHeight: Int?, val label: String) {
     AUTO(720, "Авто — до 720p"),
     P360(360, "До 360p"),
@@ -30,4 +31,10 @@ data class AppSettings(
     val engineChannel: EngineChannel = EngineChannel.STABLE,
     val largeMode: Boolean = true,
     val wifiOnly: Boolean = false,
+    val youtubeQuality: Quality? = null,
 )
+
+fun AppSettings.qualityFor(platform: DownloadPlatform): Quality = when (platform) {
+    DownloadPlatform.YOUTUBE -> youtubeQuality
+    DownloadPlatform.OTHER -> null
+} ?: quality

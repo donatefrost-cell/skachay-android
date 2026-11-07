@@ -29,4 +29,12 @@ class SharedUrlTest {
     fun skipsInvalidCandidatesBeforeAValidLink() {
         assertEquals("https://example.com/a", SharedUrl.firstIn("http:// https://example.com/a"))
     }
+
+    @Test
+    fun extractsDistinctLinksForBatchDownloads() {
+        assertEquals(
+            listOf("https://youtu.be/a", "https://www.instagram.com/p/b"),
+            SharedUrl.allIn("https://youtu.be/a, https://www.instagram.com/p/b. https://youtu.be/a"),
+        )
+    }
 }
