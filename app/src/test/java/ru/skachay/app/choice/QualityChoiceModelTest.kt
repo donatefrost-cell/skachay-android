@@ -52,6 +52,7 @@ class QualityChoiceModelTest {
         val choices = QualityChoiceBuilder.audioCards(preview)
 
         assertEquals(listOf(QualityAudioKind.BEST_M4A, QualityAudioKind.COMPACT_MP3), choices.map { it.kind })
+        assertEquals("Компактное · mp3 128 кбит/с", choices[1].kind.title)
         assertEquals("m4a-192", choices.first().source.id)
         assertEquals(1_600_000L, choices[1].estimatedSizeBytes)
     }

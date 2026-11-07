@@ -24,7 +24,7 @@ internal data class QualityVideoCard(
 
 internal enum class QualityAudioKind(val title: String) {
     BEST_M4A("Лучшее · m4a"),
-    COMPACT_MP3("Компактное · MP3 128 кбит/с"),
+    COMPACT_MP3("Компактное · mp3 128 кбит/с"),
 }
 
 internal data class QualityAudioCard(

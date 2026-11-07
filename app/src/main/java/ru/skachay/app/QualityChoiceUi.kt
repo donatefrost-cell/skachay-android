@@ -135,7 +135,7 @@ internal fun QualityChoiceSheetContent(
                     items(audioChoices, key = { it.kind.name }) { choice ->
                         QualityChoiceCard(
                             title = choice.kind.title,
-                            subtitle = if (choice.kind == QualityAudioKind.BEST_M4A) "Исходное качество" else "Меньше места на телефоне",
+                            subtitle = if (choice.kind == QualityAudioKind.BEST_M4A) "Исходное качество" else "Экономит место",
                             size = formatMediaSizeRu(choice.estimatedSizeBytes),
                             selected = selectedAudioKind == choice.kind,
                             warning = choice.estimatedSizeBytes?.let { it >= ru.skachay.app.choice.LARGE_VIDEO_WARNING_BYTES } == true,
@@ -307,7 +307,7 @@ private fun QualityChoiceCard(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = selected, onClick = null)
             Column(Modifier.weight(1f).padding(start = 8.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (recommended) Text("рекомендуем", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
@@ -576,7 +576,7 @@ private fun QualityChoiceDemo(loading: Boolean = false, longTitle: Boolean = fal
                             errorMessage = null, advancedMode = true, audioMode = audioMode,
                             selectedVideoId = selectedVideo?.video?.id, selectedAudioKind = selectedAudio?.kind,
                             videoChoices = videos, audioChoices = audios, rememberChoice = false,
-                            estimatedSizeBytes = if (audioMode) selectedAudio?.estimatedSizeBytes else selectedVideo?.estimatedSizeBytes,
+                            estimatedSizeBytes = if (loading) null else if (audioMode) selectedAudio?.estimatedSizeBytes else selectedVideo?.estimatedSizeBytes,
                             downloadEnabled = !loading, onAudioModeChanged = {}, onVideoChoice = {}, onAudioChoice = {},
                             onRememberChoiceChanged = {}, onOpenAdvanced = {}, onCancel = {}, onDownload = {},
                         )
