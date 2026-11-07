@@ -439,24 +439,26 @@ internal fun ChoiceSheetPreview() {
             formats = emptyList(),
         ),
     )
-    SkachayTheme {
+    SkachayPreview {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f),
         ) {
-            Column(
-                Modifier.fillMaxWidth().padding(top = 96.dp).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                    .background(MaterialTheme.colorScheme.surface).padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 96.dp),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                Box(Modifier.size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant).align(Alignment.CenterHorizontally))
-                Text("Скачать", style = MaterialTheme.typography.headlineSmall)
-                PreviewCardContent(sample.preview, "YouTube", thumbnail = null)
-                Text("Качество", style = MaterialTheme.typography.titleMedium)
-                ChoiceRow("1080p · MP4 · ~48 МБ", selected = false, onClick = {})
-                ChoiceRow("720p · MP4 · ~28 МБ", selected = true, onClick = {})
-                ChoiceRow("Только звук · m4a · ~4 МБ", selected = false, onClick = {})
-                Button(onClick = {}, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скачать · ~28 МБ") }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant).align(Alignment.CenterHorizontally))
+                    Text("Скачать", style = MaterialTheme.typography.headlineSmall)
+                    PreviewCardContent(sample.preview, "YouTube", thumbnail = null)
+                    Text("Качество", style = MaterialTheme.typography.titleMedium)
+                    ChoiceRow("1080p · MP4 · ~48 МБ", selected = false, onClick = {})
+                    ChoiceRow("720p · MP4 · ~28 МБ", selected = true, onClick = {})
+                    ChoiceRow("Только звук · m4a · ~4 МБ", selected = false, onClick = {})
+                    Button(onClick = {}, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скачать · ~28 МБ") }
+                }
             }
         }
     }

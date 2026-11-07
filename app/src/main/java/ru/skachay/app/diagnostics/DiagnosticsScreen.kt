@@ -12,28 +12,34 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import java.util.Locale
-import ru.skachay.app.SkachayTheme
+import ru.skachay.app.R
+import ru.skachay.app.SkachayPreview
 import ru.skachay.app.SharedUrl
 import ru.skachay.app.startDownload
 
@@ -52,8 +58,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 56.dp)) { Text("← Назад") }
-        Text("Диагностика", style = MaterialTheme.typography.headlineLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(56.dp)) {
+                Icon(painterResource(R.drawable.ic_back), contentDescription = "Назад", tint = MaterialTheme.colorScheme.onSurface)
+            }
+            Text("Диагностика", style = MaterialTheme.typography.headlineMedium)
+        }
         Text("Здесь показаны последние попытки скачивания и время каждого этапа.")
         entries.forEach { entry ->
             Card(Modifier.fillMaxWidth()) {
@@ -96,5 +106,5 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
 @Preview(name = "Диагностика · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun DiagnosticsScreenPreview() {
-    SkachayTheme { DiagnosticsScreen(onBack = {}) }
+    SkachayPreview { DiagnosticsScreen(onBack = {}) }
 }

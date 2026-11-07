@@ -17,6 +17,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -313,7 +315,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onDiagnostics: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -338,7 +340,11 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
         SettingsSection("Качество", R.drawable.ic_quality) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Авто ограничивает видео до 720p и выбирает H.264.", style = MaterialTheme.typography.bodyMedium)
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberHorizontalScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     listOf(
                         Quality.AUTO to "Авто 720p", Quality.BEST to "Лучшее 1080p",
                         Quality.P2160 to "4K", Quality.MAX to "Максимум",
@@ -649,13 +655,20 @@ internal fun SkachayTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, content = content)
 }
 
+@Composable
+internal fun SkachayPreview(content: @Composable () -> Unit) {
+    SkachayTheme {
+        Surface(modifier = Modifier.fillMaxSize(), content = content)
+    }
+}
+
 @Preview(name = "Первый запуск · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
 @Preview(name = "Первый запуск · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, showSystemUi = true)
 @Preview(name = "Первый запуск · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Первый запуск · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun WelcomeScreenPreview() {
-    SkachayTheme { WelcomeScreen {} }
+    SkachayPreview { WelcomeScreen {} }
 }
 
 @Preview(name = "Главная · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
@@ -664,7 +677,7 @@ internal fun WelcomeScreenPreview() {
 @Preview(name = "Главная · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun HomeScreenPreview() {
-    SkachayTheme { HomeScreen(AppSettings(onboardingComplete = true), refresh = 0, onSettings = {}) }
+    SkachayPreview { HomeScreen(AppSettings(onboardingComplete = true), refresh = 0, onSettings = {}) }
 }
 
 @Preview(name = "Настройки · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
@@ -675,7 +688,7 @@ internal fun HomeScreenPreview() {
 internal fun SettingsScreenPreview() {
     val context = LocalContext.current
     val repository = remember(context) { SettingsRepository.forContext(context) }
-    SkachayTheme {
+    SkachayPreview {
         SettingsScreen(
             settings = AppSettings(onboardingComplete = true, mode = UserMode.ADVANCED, largeMode = false),
             repository = repository,
