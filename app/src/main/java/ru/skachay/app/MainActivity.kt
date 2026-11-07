@@ -654,7 +654,7 @@ internal fun SkachayTheme(content: @Composable () -> Unit) {
 @Preview(name = "Первый запуск · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Первый запуск · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-private fun WelcomeScreenPreview() {
+internal fun WelcomeScreenPreview() {
     SkachayTheme { WelcomeScreen {} }
 }
 
@@ -663,7 +663,7 @@ private fun WelcomeScreenPreview() {
 @Preview(name = "Главная · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Главная · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-private fun HomeScreenPreview() {
+internal fun HomeScreenPreview() {
     SkachayTheme { HomeScreen(AppSettings(onboardingComplete = true), refresh = 0, onSettings = {}) }
 }
 
@@ -672,7 +672,7 @@ private fun HomeScreenPreview() {
 @Preview(name = "Настройки · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Настройки · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-private fun SettingsScreenPreview() {
+internal fun SettingsScreenPreview() {
     val context = LocalContext.current
     val repository = remember(context) { SettingsRepository.forContext(context) }
     SkachayTheme {

@@ -22,11 +22,16 @@ jobs:
       - name: Установить Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Проверить и собрать
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateScreenshotTestDefaultDebugTestSuite
       - uses: actions/upload-artifact@v4
         with:
           name: skachay-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skachay-screenshots
+          path: app/src/screenshotTestDefaultDebug/reference/
           if-no-files-found: error
 
   release:

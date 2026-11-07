@@ -95,6 +95,6 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
 @Preview(name = "Диагностика · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Диагностика · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-private fun DiagnosticsScreenPreview() {
+internal fun DiagnosticsScreenPreview() {
     SkachayTheme { DiagnosticsScreen(onBack = {}) }
 }

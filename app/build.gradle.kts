@@ -21,6 +21,8 @@ android {
     namespace = "ru.skachay.app"
     compileSdk = 37
 
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
+
     defaultConfig {
         applicationId = "ru.skachay.app"
         minSdk = 26
@@ -55,6 +57,18 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    testOptions {
+        screenshotTests.create("screenshotTest") {
+            engineVersion = "0.0.1-alpha16"
+            targetVariants.add("debug")
+            dependencies {
+                implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+                implementation("androidx.compose.ui:ui-tooling")
+                implementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
+            }
+        }
     }
 
     sourceSets["main"].assets.srcDir(rootProject.layout.projectDirectory.dir("recipe-defaults"))

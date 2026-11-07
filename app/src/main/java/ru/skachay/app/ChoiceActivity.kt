@@ -423,7 +423,7 @@ private fun MetadataChip(label: String) {
 @Preview(name = "Выбор файла · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Preview(name = "Выбор файла · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
 @Composable
-private fun ChoiceSheetPreview() {
+internal fun ChoiceSheetPreview() {
     val sample = CachedPreview(
         File("preview-cache"),
         VideoPreview(
