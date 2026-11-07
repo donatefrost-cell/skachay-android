@@ -21,6 +21,7 @@ require(signingValues.all { it.isNullOrBlank() } || signingValues.none { it.isNu
 android {
     namespace = "ru.skachay.app"
     compileSdk = 37
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
 
     defaultConfig {
         applicationId = "ru.skachay.app"
