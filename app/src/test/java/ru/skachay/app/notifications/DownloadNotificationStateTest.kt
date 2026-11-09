@@ -28,7 +28,7 @@ class DownloadNotificationStateTest {
         val duplicate = state.startIfAbsent(101, "duplicate request")
 
         assertNull(duplicate)
-        assertEquals("first request", state.update(101, "progress").active[101])
+        assertEquals("first request", state.currentSnapshot().active[101])
     }
 
     @Test

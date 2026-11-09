@@ -21,7 +21,7 @@ internal class DownloadNotificationState<T> {
 
     @Synchronized
     fun start(id: Int, notification: T): DownloadNotificationSnapshot<T> {
-        return startIfAbsent(id, notification) ?: snapshot()
+        return startIfAbsent(id, notification) ?: currentSnapshot()
     }
 
     @Synchronized
@@ -30,36 +30,36 @@ internal class DownloadNotificationState<T> {
         active[id] = notification
         totalCount++
         if (foregroundId == null) foregroundId = id
-        return snapshot()
+        return currentSnapshot()
     }
 
     @Synchronized
     fun update(id: Int, notification: T): DownloadNotificationSnapshot<T> {
         if (id in active) active[id] = notification
-        return snapshot()
+        return currentSnapshot()
     }
 
     @Synchronized
     fun complete(id: Int, notification: T): DownloadNotificationSnapshot<T> {
-        if (active.remove(id) == null) return snapshot(completed = id to notification)
+        if (active.remove(id) == null) return currentSnapshot(completed = id to notification)
         val wasForeground = foregroundId == id
         if (wasForeground) foregroundId = active.keys.firstOrNull()
-        return snapshot(detachForeground = wasForeground, completed = id to notification)
+        return currentSnapshot(detachForeground = wasForeground, completed = id to notification)
     }
 
     @Synchronized
     fun discard(id: Int): DownloadNotificationSnapshot<T> {
-        if (active.remove(id) == null) return snapshot()
+        if (active.remove(id) == null) return currentSnapshot()
         val wasForeground = foregroundId == id
         if (wasForeground) foregroundId = active.keys.firstOrNull()
-        return snapshot(detachForeground = wasForeground)
+        return currentSnapshot(detachForeground = wasForeground)
     }
 
     @Synchronized
     fun contains(id: Int): Boolean = id in active
 
     @Synchronized
-    private fun snapshot(
+    fun currentSnapshot(
         detachForeground: Boolean = false,
         completed: Pair<Int, T>? = null,
     ): DownloadNotificationSnapshot<T> = DownloadNotificationSnapshot(
