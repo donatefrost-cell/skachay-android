@@ -14,6 +14,9 @@ import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
 import ru.skachay.app.updates.UpdateWorker
 import ru.skachay.app.diagnostics.DiagnosticsStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import ru.skachay.app.queue.DownloadQueueDatabase
 
 class SkachayApp : Application() {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
@@ -22,6 +25,13 @@ class SkachayApp : Application() {
         super.onCreate()
         DiagnosticsStore.markInterrupted(this)
         RecipeStore.load(this)
+        maintenance.execute {
+            runCatching {
+                runBlocking(Dispatchers.IO) {
+                    DownloadQueueDatabase.get(this@SkachayApp).queue().markInterrupted(System.currentTimeMillis())
+                }
+            }.onFailure { Log.w("Skachay", "Не удалось восстановить очередь после перезапуска", it) }
+        }
         val recipes = PeriodicWorkRequest.Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()

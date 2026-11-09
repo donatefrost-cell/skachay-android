@@ -23,6 +23,16 @@ jobs:
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Проверить и собрать
         run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateDebugScreenshotTest
+      - name: Проверить очередь на Android-эмуляторе
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: Pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.queue.DownloadQueueDatabaseTest,ru.skachay.app.download.DownloadNotificationCountInstrumentedTest
       - name: Показать причину ошибки снимков
         if: failure()
         run: |
@@ -128,7 +138,7 @@ jobs:
 
           Сравнение скорости двух способов загрузки YouTube на физическом телефоне ещё не выполнено; чисел ускорения для этого выпуска нет.
 
-          Очередь не сохраняется при принудительном завершении приложения; пауза, возобновление и отмена незаконченной загрузки пока не доступны.
+          Очередь хранится локально; загрузки можно ставить на паузу, продолжать, отменять и повторять. После принудительного закрытия повтор начинает передачу заново.
           NOTES
           gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
             --title "Скачай $version" \

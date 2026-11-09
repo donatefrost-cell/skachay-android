@@ -60,6 +60,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -86,6 +87,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,6 +120,9 @@ import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
 import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.settings.qualityFor
+import ru.skachay.app.queue.DownloadQueueDatabase
+import ru.skachay.app.queue.DownloadQueueEntry
+import ru.skachay.app.queue.DownloadQueueStatus
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
 import ru.skachay.app.diagnostics.DiagnosticsScreen
@@ -367,6 +372,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
                     else -> "Вставьте ссылку"
                 })
             }
+            DownloadQueueSection()
             PermissionPrompt()
             RecentMedia(refresh)
         }
@@ -375,6 +381,73 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
         )
     }
+}
+
+@Composable
+private fun DownloadQueueSection() {
+    if (LocalInspectionMode.current) return
+    val context = LocalContext.current
+    val entries by remember(context) { DownloadQueueDatabase.get(context).queue().observeRecent() }
+        .collectAsState(initial = emptyList())
+    val visible = entries.filter { it.status in setOf(DownloadQueueStatus.QUEUED, DownloadQueueStatus.RUNNING, DownloadQueueStatus.PAUSED, DownloadQueueStatus.FAILED) }
+    if (visible.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Загрузки", style = MaterialTheme.typography.titleMedium)
+        visible.forEach { entry -> DownloadQueueCard(entry) }
+    }
+}
+
+@Composable
+private fun DownloadQueueCard(entry: DownloadQueueEntry) {
+    val context = LocalContext.current
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(
+                when (entry.status) {
+                    DownloadQueueStatus.QUEUED -> "В очереди"
+                    DownloadQueueStatus.RUNNING -> "Загружается${entry.percent?.let { " · $it%" }.orEmpty()}"
+                    DownloadQueueStatus.PAUSED -> "На паузе${entry.percent?.let { " · $it%" }.orEmpty()}"
+                    DownloadQueueStatus.FAILED -> entry.error ?: "Не удалось скачать"
+                    else -> ""
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (entry.status == DownloadQueueStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            if (entry.status == DownloadQueueStatus.RUNNING || entry.status == DownloadQueueStatus.QUEUED) {
+                val progress = (entry.percent ?: 0).coerceIn(0, 100) / 100f
+                if (entry.percent == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (entry.status) {
+                    DownloadQueueStatus.RUNNING, DownloadQueueStatus.QUEUED -> TextButton(onClick = {
+                        sendQueueAction(context, entry.id, DownloadService.ACTION_PAUSE)
+                    }) { Text("Пауза") }
+                    DownloadQueueStatus.PAUSED -> TextButton(onClick = {
+                        sendQueueAction(context, entry.id, DownloadService.ACTION_RESUME)
+                    }) { Text("Продолжить") }
+                    DownloadQueueStatus.FAILED -> TextButton(onClick = {
+                        sendQueueAction(context, entry.id, DownloadService.ACTION_RETRY)
+                    }) { Text("Повторить") }
+                }
+                TextButton(onClick = { sendQueueAction(context, entry.id, DownloadService.ACTION_CANCEL) }) { Text("Отмена") }
+            }
+        }
+    }
+}
+
+private fun sendQueueAction(context: Context, id: Int, action: String) {
+    val intent = Intent(context, DownloadService::class.java).setAction(action)
+        .putExtra(DownloadService.EXTRA_NOTIFICATION_ID, id)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+    else context.startService(intent)
 }
 
 private sealed interface HomePreviewState {

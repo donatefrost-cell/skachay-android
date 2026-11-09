@@ -43,6 +43,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.Quality
@@ -68,6 +69,11 @@ import ru.skachay.app.notifications.DownloadNotificationSnapshot
 import ru.skachay.app.notifications.DownloadNotificationState
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import ru.skachay.app.queue.DownloadControl
+import ru.skachay.app.queue.DownloadQueueDatabase
+import ru.skachay.app.queue.DownloadQueueEntry
+import ru.skachay.app.queue.DownloadQueueStatus
+import ru.skachay.app.queue.DownloadRequestCodec
 
 private class SocialPreviewUnavailable : IOException()
 private class WifiOnlyRequiredException : IOException()
@@ -78,7 +84,10 @@ class DownloadService : Service() {
     private val downloader = MediaDownloadClient.downloader
     private val instagram = InstagramResolver()
     private val tiktok = TikTokResolver()
-    private val activeUrls = ConcurrentHashMap.newKeySet<String>()
+    private val activeUrls = ConcurrentHashMap<String, DownloadControl>()
+    private val controls = ConcurrentHashMap<Int, DownloadControl>()
+    private val jobThreads = ConcurrentHashMap<Int, Thread>()
+    private val queueDao by lazy { DownloadQueueDatabase.get(this).queue() }
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val notificationCenter by lazy {
         DownloadNotificationCenter(this, notifications, ::groupSummaryNotification, GROUP_SUMMARY_ID)
@@ -106,6 +115,9 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action?.let { it in setOf(ACTION_PAUSE, ACTION_RESUME, ACTION_CANCEL, ACTION_RETRY) } == true) {
+            return handleQueueAction(intent, flags, startId)
+        }
         val shared = SharedUrl.firstIn(intent?.getStringExtra(EXTRA_URL))
         if (shared == null) {
             stopSelf(startId)
@@ -113,6 +125,11 @@ class DownloadService : Service() {
         }
         val url = shared
         val id = notificationIdFor(intent, url)
+        val requestJson = try { DownloadRequestCodec.encode(intent ?: Intent().putExtra(EXTRA_URL, url)) }
+        catch (error: Exception) {
+            Log.w("Skachay", "Не удалось сохранить параметры загрузки: ${error.javaClass.simpleName}")
+            SharedUrl.firstIn(url)?.let { valid -> DownloadRequestCodec.encode(Intent().putExtra(EXTRA_URL, valid)) } ?: return START_NOT_STICKY
+        }
         val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
         val audioExport = AudioExport.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_AUDIO_EXPORT) } ?: AudioExport.SOURCE
         val audioBitrate = AudioBitrate.entries.firstOrNull { it.kilobits == intent?.getIntExtra(EXTRA_AUDIO_BITRATE, 192) } ?: AudioBitrate.K192
@@ -134,6 +151,8 @@ class DownloadService : Service() {
             running++
             latestStartId = startId
         }
+        val control = DownloadControl()
+        controls[id] = control
         val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
         val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
@@ -145,6 +164,43 @@ class DownloadService : Service() {
         scheduler.execute {
             var leasedFolderUri = if (folderGrantLeased) downloadFolderUri else folderLeaseAtStart
             try {
+                val now = System.currentTimeMillis()
+                runBlocking(Dispatchers.IO) {
+                    val old = queueDao.get(id)
+                    queueDao.upsert(old?.copy(
+                        url = url,
+                        requestJson = requestJson,
+                        status = when {
+                            control.isCancelled() -> DownloadQueueStatus.CANCELLED
+                            control.isPaused() -> DownloadQueueStatus.PAUSED
+                            else -> DownloadQueueStatus.QUEUED
+                        },
+                        updatedAt = now,
+                        percent = null,
+                        bytesReceived = 0,
+                        totalBytes = null,
+                        speedBytesPerSecond = null,
+                        resultUri = null,
+                        error = null,
+                    ) ?: DownloadQueueEntry(
+                        id = id,
+                        url = url,
+                        title = Uri.parse(url).host?.removePrefix("www.") ?: "Скачай",
+                        requestJson = requestJson,
+                        status = when {
+                            control.isCancelled() -> DownloadQueueStatus.CANCELLED
+                            control.isPaused() -> DownloadQueueStatus.PAUSED
+                            else -> DownloadQueueStatus.QUEUED
+                        },
+                        createdAt = now,
+                        updatedAt = now,
+                    ))
+                }
+                if (control.isCancelled()) {
+                    DownloadFolderGrantRegistry.release(this@DownloadService, leasedFolderUri)
+                    finishJob(id, control)
+                    return@execute
+                }
                 val settings = runBlocking { SettingsRepository.forContext(this@DownloadService).settings.first() }
                 executor.corePoolSize = settings.parallelDownloads
                 val existingFolderLease = leasedFolderUri
@@ -165,13 +221,30 @@ class DownloadService : Service() {
                 }
                 val folderUriToRelease = leasedFolderUri
                 executor.execute {
+                    jobThreads[id] = Thread.currentThread()
                     try {
+                        val pausedBeforeStart = control.isPaused()
+                        updateQueueStatus(id, if (pausedBeforeStart) DownloadQueueStatus.PAUSED else DownloadQueueStatus.RUNNING)
+                        if (pausedBeforeStart) {
+                            runCatching { runBlocking(Dispatchers.IO) { queueDao.get(id) } }
+                                .getOrNull()?.let { notifySafely(id, pausedNotification(it)) }
+                        }
+                        control.checkpoint()
                         download(url, id, settings.copy(quality = overrideQuality ?: settings.qualityForUrl(url)), usePreview, formatId, videoOnly,
                             socialPreviewId, selectedItems, fileName, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
-                            embedThumbnail, allowPlaylist, playlistAudioOnly, requestedFolderUri, true)
+                            embedThumbnail, allowPlaylist, playlistAudioOnly, requestedFolderUri, true, control)
+                    } catch (error: Exception) {
+                        if (control.isCancelled()) {
+                            updateQueueStatus(id, DownloadQueueStatus.CANCELLED)
+                        } else {
+                            Log.w("Skachay", "Очередь ${providerFor(url).label}: ${error.javaClass.simpleName}")
+                            updateQueueStatus(id, DownloadQueueStatus.FAILED, diagnosticError(providerFor(url), error))
+                            notificationCenter.discard(id)
+                        }
                     } finally {
+                        jobThreads.remove(id, Thread.currentThread())
                         DownloadFolderGrantRegistry.release(this@DownloadService, folderUriToRelease)
-                        finishJob()
+                        finishJob(id, control)
                     }
                 }
                 leasedFolderUri = null
@@ -181,18 +254,83 @@ class DownloadService : Service() {
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
+                updateQueueStatus(id, DownloadQueueStatus.FAILED, diagnosticError(provider, error))
                 notifySafely(id, errorNotification(url, id, overrideQuality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
                     audioExport = audioExport, audioBitrate = audioBitrate, subtitleLanguage = subtitleLanguage,
                     subtitleAutomatic = subtitleAutomatic, embedSubtitles = embedSubtitles, embedThumbnail = embedThumbnail,
                     allowPlaylist = allowPlaylist, playlistAudioOnly = playlistAudioOnly,
                     reason = diagnosticError(provider, error)))
-                finishJob()
+                finishJob(id, control)
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun finishJob() {
+    private fun handleQueueAction(intent: Intent, flags: Int, startId: Int): Int {
+        val id = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
+        if (id == 0) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val entry = runCatching { runBlocking(Dispatchers.IO) { queueDao.get(id) } }.getOrNull()
+        val control = controls[id]
+        when (intent.action) {
+            ACTION_PAUSE -> {
+                control?.pause()
+                updateQueueStatus(id, DownloadQueueStatus.PAUSED)
+                val paused = entry?.copy(status = DownloadQueueStatus.PAUSED)
+                if (paused != null) {
+                    if (control == null) notificationCenter.start(id, pausedNotification(paused))
+                    else notifySafely(id, pausedNotification(paused))
+                }
+                if (control == null) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                    stopSelfResult(startId)
+                }
+            }
+            ACTION_CANCEL -> {
+                control?.cancel()
+                jobThreads[id]?.interrupt()
+                updateQueueStatus(id, DownloadQueueStatus.CANCELLED)
+                if (control != null) notificationCenter.discard(id)
+                else {
+                    notificationCenter.start(id, entry?.let(::pausedNotification) ?: actionPlaceholderNotification())
+                    notificationCenter.discard(id)
+                    stopSelfResult(startId)
+                }
+            }
+            ACTION_RESUME -> {
+                if (control != null) {
+                    control.resume()
+                    updateQueueStatus(id, DownloadQueueStatus.RUNNING)
+                    entry?.let { notifySafely(id, progressNotification(it.percent, it.url, id, null, null,
+                        TransferSnapshot(it.bytesReceived, it.totalBytes, null, it.speedBytesPerSecond, null), it.title)) }
+                } else if (entry != null) {
+                    notificationCenter.discard(id)
+                    runCatching { runBlocking(Dispatchers.IO) { queueDao.restart(id, System.currentTimeMillis()) } }
+                    return onStartCommand(DownloadRequestCodec.restore(this, entry.requestJson, id), flags, startId)
+                }
+            }
+            ACTION_RETRY -> if (entry != null) {
+                notificationCenter.discard(id)
+                runCatching { runBlocking(Dispatchers.IO) { queueDao.restart(id, System.currentTimeMillis()) } }
+                return onStartCommand(DownloadRequestCodec.restore(this, entry.requestJson, id), flags, startId)
+            }
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun actionPlaceholderNotification(): Notification = Notification.Builder(this, CHANNEL)
+        .setSmallIcon(R.drawable.ic_stat_download)
+        .setContentTitle("Скачай")
+        .setContentText("Обновляю очередь…")
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .build()
+
+    private fun finishJob(id: Int, control: DownloadControl) {
+        controls.remove(id, control)
+        jobThreads.remove(id, Thread.currentThread())
         synchronized(lock) {
             running--
             if (running == 0) {
@@ -201,11 +339,41 @@ class DownloadService : Service() {
         }
     }
 
+    private fun updateQueueStatus(id: Int, status: String, error: String? = null) {
+        runCatching {
+            runBlocking(Dispatchers.IO) { queueDao.setStatus(id, status, System.currentTimeMillis(), error) }
+        }.onFailure { Log.w("Skachay", "Не удалось сохранить состояние очереди: ${it.javaClass.simpleName}") }
+    }
+
+    private fun updateQueueProgress(id: Int, percent: Int?, transfer: TransferSnapshot) {
+        runCatching {
+            runBlocking(Dispatchers.IO) {
+                queueDao.updateProgress(id, percent, transfer.bytesReceived, transfer.totalBytes, transfer.averageBytesPerSecond, System.currentTimeMillis())
+            }
+        }.onFailure { Log.w("Skachay", "Не удалось сохранить прогресс очереди: ${it.javaClass.simpleName}") }
+    }
+
+    private fun updateQueueComplete(id: Int, resultUri: String?, title: String) {
+        runCatching {
+            runBlocking(Dispatchers.IO) { queueDao.setComplete(id, resultUri, title, System.currentTimeMillis()) }
+        }.onFailure { Log.w("Skachay", "Не удалось сохранить результат очереди: ${it.javaClass.simpleName}") }
+    }
+
+    private fun updateQueueTitle(id: Int, title: String) {
+        runCatching { runBlocking(Dispatchers.IO) { queueDao.updateTitle(id, title, System.currentTimeMillis()) } }
+            .onFailure { Log.w("Skachay", "Не удалось сохранить название загрузки: ${it.javaClass.simpleName}") }
+    }
+
+    private fun deleteQueueEntry(id: Int) {
+        runCatching { runBlocking(Dispatchers.IO) { queueDao.delete(id) } }
+            .onFailure { Log.w("Skachay", "Не удалось убрать повтор из очереди: ${it.javaClass.simpleName}") }
+    }
+
     private fun download(
         url: String, id: Int, settings: AppSettings, usePreview: Boolean, formatId: String?, videoOnly: Boolean,
         socialPreviewId: String?, selectedItems: IntArray?, fileName: String?, audioExport: AudioExport,
         audioBitrate: AudioBitrate, subtitleLanguage: String?, subtitleAutomatic: Boolean, embedSubtitles: Boolean, embedThumbnail: Boolean,
-        allowPlaylist: Boolean, playlistAudioOnly: Boolean, downloadFolderUri: String?, overrideDownloadFolder: Boolean,
+        allowPlaylist: Boolean, playlistAudioOnly: Boolean, downloadFolderUri: String?, overrideDownloadFolder: Boolean, control: DownloadControl,
     ) {
         val requestedFolderUri = if (overrideDownloadFolder) downloadFolderUri else downloadFolderUri ?: settings.downloadFolderUri
         val baseKey = InstagramLink.canonical(url) ?: TikTokLink.postId(url)?.let { "tiktok:$it" } ?: url
@@ -228,7 +396,8 @@ class DownloadService : Service() {
             requestedFolderUri?.let { append("::folder:${it.hashCode().toUInt()}") }
         }
         val historyKey = baseHistoryKey + optionSuffix
-        if (!activeUrls.add(historyKey)) {
+        if (activeUrls.putIfAbsent(historyKey, control) != null) {
+            deleteQueueEntry(id)
             notificationCenter.discard(id)
             return
         }
@@ -240,6 +409,7 @@ class DownloadService : Service() {
         var mediaTitle: String? = null
         var thumbnailUrl: String? = null
         try {
+            control.checkpoint()
             val outputFolderUri = resolveDownloadFolder(requestedFolderUri, null)
             if (settings.wifiOnly && !wifiAvailable()) throw WifiOnlyRequiredException()
             if (socialRequested && chosenItems == null) throw SocialPreviewUnavailable()
@@ -248,6 +418,7 @@ class DownloadService : Service() {
             if (previous != null && exists(previous)) {
                 val type = contentResolver.getType(previous) ?: "*/*"
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.ALREADY, emptyMap())
+                updateQueueComplete(id, previous.toString(), "Уже скачано")
                 notifySafely(id, resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type, url, id, settings.quality, fileName))
                 return
             }
@@ -255,15 +426,18 @@ class DownloadService : Service() {
             if (!directory.mkdir()) throw IOException("Could not create temporary folder")
             var lastUpdate = 0L
             val report: (Int?) -> Unit = { percent ->
+                control.checkpoint()
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
                     val transfer = transferStats.snapshot()
                     val notification = progressNotification(percent, url, id, settings.quality, fileName, transfer, mediaTitle)
                     notifySafely(id, notification, transfer.averageBytesPerSecond)
+                    updateQueueProgress(id, percent, transfer)
                 }
             }
             val detailedReport: (YtDlpProgress) -> Unit = { progress ->
+                control.checkpoint()
                 val sample = transferStats.update(progress.receivedBytes, progress.totalBytes)
                 val percent = sample.totalBytes?.takeIf { it > 0 }
                     ?.let { (sample.bytesReceived * 100 / it).coerceIn(0, 100).toInt() } ?: progress.percent
@@ -319,6 +493,7 @@ class DownloadService : Service() {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
                     } else PreviewStore.getOrFetch(this, url)
                     mediaTitle = cached.preview.title.take(100)
+                    updateQueueTitle(id, mediaTitle!!)
                     thumbnailUrl = cached.preview.thumbnailUrl
                     report(null)
                     val extractionElapsed = (SystemClock.elapsedRealtime() - extractionStarted).coerceAtLeast(0)
@@ -442,22 +617,31 @@ class DownloadService : Service() {
             val durations = timer.finish()
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FINISHED, durations,
                 transfer = transferStats.snapshot(), vpnActive = vpnActive())
+            updateQueueComplete(id, uri.toString(), mediaTitle ?: "Готово")
             val thumbnail = loadNotificationThumbnail(thumbnailUrl)
             val resultMessage = if (mediaTitle?.startsWith("Плейлист") == true) "Все файлы добавлены в галерею" else "Готово · нажмите, чтобы открыть"
             notifySafely(id, resultNotification(mediaTitle ?: "Готово", resultMessage, uri, mime, url, id, settings.quality, fileName, thumbnail))
         } catch (error: Exception) {
+            if (control.isCancelled()) {
+                updateQueueStatus(id, DownloadQueueStatus.CANCELLED)
+                notificationCenter.discard(id)
+                return
+            }
+            activeUrls.remove(historyKey, control)
+            controls.remove(id, control)
             Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
             transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
             val friendlyError = if (error is WifiOnlyRequiredException) "Подключитесь к Wi-Fi и повторите загрузку." else diagnosticError(provider, error)
             DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, timer.finish(), friendlyError,
                 transfer = transferStats.snapshot(), vpnActive = vpnActive())
+            updateQueueStatus(id, DownloadQueueStatus.FAILED, friendlyError)
             notifySafely(id, errorNotification(url, id, settings.quality, usePreview, formatId, videoOnly, socialPreviewId, selectedItems, fileName,
                 error is SocialPreviewUnavailable, audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles,
                 embedThumbnail, allowPlaylist, playlistAudioOnly,
                 reason = if (error is SocialPreviewUnavailable) null else friendlyError))
         } finally {
             directory?.deleteRecursively()
-            activeUrls.remove(historyKey)
+            activeUrls.remove(historyKey, control)
         }
     }
 
@@ -547,8 +731,37 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setProgress(100, percent ?: 0, percent == null)
             .setColor(0xFF534AB7.toInt())
+        builder.addAction(Notification.Action.Builder(null, "Пауза", queueActionPendingIntent(id, ACTION_PAUSE)).build())
+        builder.addAction(Notification.Action.Builder(null, "Отмена", queueActionPendingIntent(id, ACTION_CANCEL)).build())
         addChoiceAction(builder, url, id, quality, fileName)
         return builder.build()
+    }
+
+    private fun pausedNotification(entry: DownloadQueueEntry): Notification = Notification.Builder(this, CHANNEL)
+        .setSmallIcon(R.drawable.ic_stat_download)
+        .setLargeIcon(notificationLargeIcon)
+        .setContentTitle(entry.title)
+        .setContentText("На паузе${entry.percent?.let { " · $it%" }.orEmpty()}")
+        .setGroup(GROUP_KEY)
+        .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+        .setColor(0xFF534AB7.toInt())
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setProgress(100, entry.percent ?: 0, entry.percent == null)
+        .addAction(Notification.Action.Builder(null, "Продолжить", queueActionPendingIntent(entry.id, ACTION_RESUME)).build())
+        .addAction(Notification.Action.Builder(null, "Отмена", queueActionPendingIntent(entry.id, ACTION_CANCEL)).build())
+        .build()
+
+    private fun queueActionPendingIntent(id: Int, action: String): PendingIntent {
+        val control = Intent(this, DownloadService::class.java)
+            .setAction(action)
+            .putExtra(EXTRA_NOTIFICATION_ID, id)
+        return PendingIntent.getForegroundService(
+            this,
+            id xor action.hashCode(),
+            control,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private fun resultNotification(
@@ -608,22 +821,8 @@ class DownloadService : Service() {
         allowPlaylist: Boolean = false, playlistAudioOnly: Boolean = false,
         reason: String? = null,
     ): Notification {
-        val retry = Intent(this, DownloadService::class.java).putExtra(EXTRA_URL, url)
-        quality?.let { retry.putExtra(EXTRA_QUALITY, it.name) }
-        retry.putExtra(EXTRA_USE_PREVIEW, usePreview).putExtra(EXTRA_VIDEO_ONLY, videoOnly)
-        formatId?.let { retry.putExtra(EXTRA_FORMAT_ID, it) }
-        socialPreviewId?.let { retry.putExtra(EXTRA_SOCIAL_PREVIEW_ID, it) }
-        selectedItems?.let { retry.putExtra(EXTRA_SELECTED_ITEMS, it) }
-        fileName?.let { retry.putExtra(EXTRA_FILE_NAME, it) }
-        retry.putExtra(EXTRA_AUDIO_EXPORT, audioExport.name)
-        retry.putExtra(EXTRA_AUDIO_BITRATE, audioBitrate.kilobits)
-        subtitleLanguage?.let { retry.putExtra(EXTRA_SUBTITLE_LANGUAGE, it) }
-        retry.putExtra(EXTRA_SUBTITLE_AUTOMATIC, subtitleAutomatic)
-        retry.putExtra(EXTRA_EMBED_SUBTITLES, embedSubtitles)
-        retry.putExtra(EXTRA_EMBED_THUMBNAIL, embedThumbnail)
-        retry.putExtra(EXTRA_ALLOW_PLAYLIST, allowPlaylist)
-        retry.putExtra(EXTRA_PLAYLIST_AUDIO_ONLY, playlistAudioOnly)
-        retry.putExtra(EXTRA_OVERRIDE_DOWNLOAD_FOLDER, false)
+        val retry = Intent(this, DownloadService::class.java).setAction(ACTION_RETRY)
+            .putExtra(EXTRA_NOTIFICATION_ID, id)
         val pending = if (chooseAgain) choicePendingIntent(url, id, quality, fileName)
             else PendingIntent.getForegroundService(this, id, retry, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = reason ?: when {
@@ -652,6 +851,7 @@ class DownloadService : Service() {
     }
 
     private fun notificationIdFor(intent: Intent?, url: String): Int {
+        intent?.getIntExtra(EXTRA_NOTIFICATION_ID, 0)?.takeIf { it != 0 }?.let { return it }
         val identity = buildString {
             append(url.length).append(':').append(url)
             intent?.extras?.let { extras ->
@@ -737,6 +937,11 @@ class DownloadService : Service() {
 
     companion object {
         const val EXTRA_URL = "url"
+        const val EXTRA_NOTIFICATION_ID = "notification_id"
+        const val ACTION_PAUSE = "ru.skachay.app.action.PAUSE"
+        const val ACTION_RESUME = "ru.skachay.app.action.RESUME"
+        const val ACTION_CANCEL = "ru.skachay.app.action.CANCEL"
+        const val ACTION_RETRY = "ru.skachay.app.action.RETRY"
         const val EXTRA_QUALITY = "quality"
         const val EXTRA_USE_PREVIEW = "use_preview"
         const val EXTRA_FORMAT_ID = "format_id"
