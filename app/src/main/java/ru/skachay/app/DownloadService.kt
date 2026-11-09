@@ -26,6 +26,7 @@ import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SavedFileName
+import ru.skachay.app.download.FileNameTemplate
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.SocialFallbackPolicy
 import ru.skachay.app.download.TikTokLink
@@ -569,13 +570,17 @@ class DownloadService : Service() {
                 }
                 timer.switchTo(DownloadStage.SAVING)
                 val output = mutableListOf<Pair<Uri, String>>()
+                val fileNameForMedia = fileName ?: FileNameTemplate.resolve(settings.fileNameTemplate, mediaTitle, url, provider.label)
                 try {
                     if (playlistFiles != null) {
                         val writer = MediaStoreWriter(this)
                         playlistFiles!!.forEachIndexed { index, playlistFile ->
                             val playlistMime = detect(playlistFile, playlistFile.name)
                                 ?: throw IOException("Not a supported playlist media file")
-                            val itemName = fileName ?: playlistFile.nameWithoutExtension
+                            val playlistTemplateName = FileNameTemplate.resolve(
+                                settings.fileNameTemplate, playlistFile.nameWithoutExtension, url, provider.label, index + 1,
+                            )
+                            val itemName = fileName ?: playlistTemplateName ?: playlistFile.nameWithoutExtension
                             output += writer.save(playlistFile, playlistMime, itemName, if (fileName != null) index + 1 else null, outputFolderUri) to playlistMime
                             val subtitles = subtitleLanguage?.let { language ->
                                 directory.listFiles()?.filter { sidecar ->
@@ -584,7 +589,7 @@ class DownloadService : Service() {
                                 }.orEmpty()
                             }.orEmpty()
                             subtitles.forEach { subtitle ->
-                                val subtitleName = fileName?.let { "$it.$subtitleLanguage" } ?: "${playlistFile.nameWithoutExtension}.$subtitleLanguage"
+                                val subtitleName = "$itemName.$subtitleLanguage"
                                 output += writer.save(subtitle, "application/x-subrip", subtitleName, if (fileName != null) index + 1 else null, outputFolderUri) to "application/x-subrip"
                             }
                         }
@@ -593,12 +598,12 @@ class DownloadService : Service() {
                             ?: throw IOException("Not a supported media file")
                         if (InstagramLink.isVideoPost(url) && !mime.startsWith("video/")) throw IOException("Expected video")
                         if (TikTokLink.supports(url) && mime.startsWith("audio/")) throw IOException("Photos or video unavailable")
-                        output += MediaStoreWriter(this).save(file, mime, fileName, folderUri = outputFolderUri) to mime
+                        output += MediaStoreWriter(this).save(file, mime, fileNameForMedia, folderUri = outputFolderUri) to mime
                         val subtitleFiles = subtitleLanguage?.let { language ->
                             directory.listFiles()?.filter { it.isFile && it.name.startsWith("video.$language.") && it.extension.equals("srt", true) }.orEmpty()
                         }.orEmpty()
                         subtitleFiles.forEach { subtitle ->
-                            val subtitleName = "${fileName ?: file.nameWithoutExtension}.$subtitleLanguage"
+                            val subtitleName = "${fileNameForMedia ?: file.nameWithoutExtension}.$subtitleLanguage"
                             output += MediaStoreWriter(this).save(subtitle, "application/x-subrip", subtitleName, folderUri = outputFolderUri) to "application/x-subrip"
                         }
                     }

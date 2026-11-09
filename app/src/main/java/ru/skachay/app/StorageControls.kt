@@ -16,17 +16,21 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.skachay.app.settings.StorageUsage
+import ru.skachay.app.queue.DownloadQueueDatabase
 
 @Composable
 internal fun StorageControls() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf(false) }
     val sizes by produceState<Pair<Long, Long>?>(initialValue = null, refresh) {
@@ -55,8 +59,13 @@ internal fun StorageControls() {
             title = { Text("Очистить историю?") },
             text = { Text("Список недавних и сведения о скачанных ссылках исчезнут. Файлы в галерее останутся.") },
             confirmButton = { TextButton(onClick = {
-                context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit().clear().apply()
-                context.getSharedPreferences("download_files", Context.MODE_PRIVATE).edit().clear().apply()
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit().clear().apply()
+                        context.getSharedPreferences("download_files", Context.MODE_PRIVATE).edit().clear().apply()
+                        DownloadQueueDatabase.get(context).queue().clearFinished()
+                    }
+                }
                 confirm = false
                 refresh++
             }) { Text("Очистить") } },

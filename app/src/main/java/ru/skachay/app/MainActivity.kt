@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Build
@@ -111,6 +112,7 @@ import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.VideoPreview
+import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.EngineChannel
@@ -126,6 +128,8 @@ import ru.skachay.app.queue.DownloadQueueStatus
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
 import ru.skachay.app.diagnostics.DiagnosticsScreen
+import ru.skachay.app.diagnostics.formatDuration
+import ru.skachay.app.diagnostics.formatSpeed
 
 class MainActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -374,7 +378,7 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
             }
             DownloadQueueSection()
             PermissionPrompt()
-            RecentMedia(refresh)
+            RecentMedia(refresh, snackbar)
         }
         SnackbarHost(
             hostState = snackbar,
@@ -400,17 +404,26 @@ private fun DownloadQueueSection() {
 @Composable
 private fun DownloadQueueCard(entry: DownloadQueueEntry) {
     val context = LocalContext.current
+    val thumbnailUrl by produceState<String?>(initialValue = null, entry.url) {
+        value = withContext(Dispatchers.IO) {
+            PreviewStore.load(context, entry.url, forDownload = true)?.preview?.thumbnailUrl
+        }
+    }
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PreviewThumbnail(thumbnailUrl)
+                Text(entry.title, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
             Text(
                 when (entry.status) {
                     DownloadQueueStatus.QUEUED -> "В очереди"
-                    DownloadQueueStatus.RUNNING -> "Загружается${entry.percent?.let { " · $it%" }.orEmpty()}"
+                    DownloadQueueStatus.RUNNING -> queueProgressLabel(context, entry)
                     DownloadQueueStatus.PAUSED -> "На паузе${entry.percent?.let { " · $it%" }.orEmpty()}"
                     DownloadQueueStatus.FAILED -> entry.error ?: "Не удалось скачать"
                     else -> ""
@@ -442,6 +455,29 @@ private fun DownloadQueueCard(entry: DownloadQueueEntry) {
         }
     }
 }
+
+private fun queueProgressLabel(context: Context, entry: DownloadQueueEntry): String {
+    val parts = buildList {
+        add(entry.percent?.let { "Загружается · $it%" } ?: "Загружается")
+        if (entry.bytesReceived > 0) {
+            val received = android.text.format.Formatter.formatShortFileSize(context, entry.bytesReceived)
+            val total = entry.totalBytes?.let { " из ${android.text.format.Formatter.formatShortFileSize(context, it)}" }.orEmpty()
+            add("$received$total")
+        }
+        entry.speedBytesPerSecond?.takeIf { it > 0 }?.let { speed ->
+            add(formatSpeed(speed))
+            entry.totalBytes?.let { total ->
+                val remaining = (total - entry.bytesReceived).coerceAtLeast(0)
+                val millis = remaining.saturatingMultiply(1_000L) / speed
+                add("ещё ${formatDuration(millis)}")
+            }
+        }
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun Long.saturatingMultiply(other: Long): Long =
+    if (this > Long.MAX_VALUE / other) Long.MAX_VALUE else this * other
 
 private fun sendQueueAction(context: Context, id: Int, action: String) {
     val intent = Intent(context, DownloadService::class.java).setAction(action)
@@ -555,7 +591,23 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
     val scope = rememberCoroutineScope()
     var showQualitySheet by remember { mutableStateOf(false) }
     var showPlatformQualitySheet by remember { mutableStateOf(false) }
+    var showFileNameDialog by remember { mutableStateOf(false) }
+    var fileNameTemplateDraft by remember(settings.fileNameTemplate) { mutableStateOf(settings.fileNameTemplate ?: "{title}") }
     val context = LocalContext.current
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+                DownloadFolderGrantRegistry.setSelected(context, uri.toString())
+                scope.launch { repository.setDownloadFolderUri(uri.toString()) }
+            } catch (_: SecurityException) {
+                android.widget.Toast.makeText(context, "Не удалось сохранить доступ к папке", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.size(56.dp)) {
@@ -633,9 +685,24 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
             SettingsSection("Файлы") {
                 Column {
-                    SettingsRow("Папка сохранения", "По умолчанию: фото, видео и музыка · Скачай", R.drawable.ic_folder)
+                    SettingsRow(
+                        "Папка сохранения",
+                        settings.downloadFolderUri?.let(::settingsFolderLabel) ?: "Галерея · папка «Скачай»",
+                        R.drawable.ic_folder,
+                        trailing = { SettingsChevron() },
+                        onClick = { folderPicker.launch(settings.downloadFolderUri?.let(Uri::parse)) },
+                    )
                     SectionDivider()
-                    SettingsRow("Имя файла", "Использовать название публикации", R.drawable.ic_quality)
+                    SettingsRow(
+                        "Имя файла",
+                        settings.fileNameTemplate ?: "Название публикации",
+                        R.drawable.ic_quality,
+                        trailing = { SettingsChevron() },
+                        onClick = {
+                            fileNameTemplateDraft = settings.fileNameTemplate ?: "{title}"
+                            showFileNameDialog = true
+                        },
+                    )
                     SectionDivider()
                     SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
                 }
@@ -661,18 +728,20 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
                 Text("Авто выбирает совместимое видео до 720p. Для этой ссылки можно будет выбрать точный формат.", style = MaterialTheme.typography.bodyMedium)
                 QualityPresetGrid(settings.quality) { preset -> scope.launch { repository.setQuality(preset) } }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Text("Предел битрейта", style = MaterialTheme.typography.titleMedium)
-                Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                val bitrateLimits = VideoBitrateLimit.entries
-                val bitrateIndex = bitrateLimits.indexOf(settings.videoBitrateLimit).coerceAtLeast(0)
-                Slider(
-                    value = bitrateIndex.toFloat(),
-                    onValueChange = { value -> scope.launch { repository.setVideoBitrateLimit(bitrateLimits[value.roundToInt()]) } },
-                    valueRange = 0f..bitrateLimits.lastIndex.toFloat(),
-                    steps = bitrateLimits.size - 2,
-                )
-                Text(bitrateLimits[bitrateIndex].label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                if (settings.mode == UserMode.ADVANCED) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("Предел битрейта", style = MaterialTheme.typography.titleMedium)
+                    Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val bitrateLimits = VideoBitrateLimit.entries
+                    val bitrateIndex = bitrateLimits.indexOf(settings.videoBitrateLimit).coerceAtLeast(0)
+                    Slider(
+                        value = bitrateIndex.toFloat(),
+                        onValueChange = { value -> scope.launch { repository.setVideoBitrateLimit(bitrateLimits[value.roundToInt()]) } },
+                        valueRange = 0f..bitrateLimits.lastIndex.toFloat(),
+                        steps = bitrateLimits.size - 2,
+                    )
+                    Text(bitrateLimits[bitrateIndex].label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                }
                 androidx.compose.material3.TextButton(onClick = { showQualitySheet = false }, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
             }
         }
@@ -696,6 +765,44 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
         }
     }
+    if (showFileNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showFileNameDialog = false },
+            title = { Text("Имя файла") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Можно использовать {title}, {source}, {date} и {index}.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = fileNameTemplateDraft,
+                        onValueChange = { fileNameTemplateDraft = it.take(128) },
+                        label = { Text("Шаблон имени") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { repository.setFileNameTemplate(fileNameTemplateDraft) }
+                    showFileNameDialog = false
+                }) { Text("Сохранить") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        scope.launch { repository.setFileNameTemplate(null) }
+                        showFileNameDialog = false
+                    }) { Text("По умолчанию") }
+                    TextButton(onClick = { showFileNameDialog = false }) { Text("Отмена") }
+                }
+            },
+        )
+    }
+}
+
+private fun settingsFolderLabel(rawUri: String): String {
+    val folder = Uri.parse(rawUri).lastPathSegment.orEmpty().substringAfter(':').substringAfterLast('/')
+    return folder.takeIf { it.isNotBlank() }?.let { "Папка «$it»" } ?: "Выбранная папка"
 }
 
 @Composable

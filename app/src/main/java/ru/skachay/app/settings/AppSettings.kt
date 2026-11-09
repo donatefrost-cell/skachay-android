@@ -49,6 +49,7 @@ data class AppSettings(
     val lastAudioQualityKind: String? = null,
     val lastQualityWasAudio: Boolean = false,
     val downloadFolderUri: String? = null,
+    val fileNameTemplate: String? = null,
 )
 
 fun AppSettings.qualityFor(platform: DownloadPlatform): Quality {

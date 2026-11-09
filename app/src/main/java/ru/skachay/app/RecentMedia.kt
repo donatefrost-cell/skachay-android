@@ -1,6 +1,7 @@
 package ru.skachay.app
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -28,6 +29,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,22 +51,27 @@ import androidx.compose.ui.unit.dp
 import java.io.FileNotFoundException
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class RecentFilter(val label: String) { ALL("Все"), VIDEO("Видео"), PHOTO("Фото"), AUDIO("Аудио") }
 private data class RecentFile(val uri: Uri, val title: String, val source: String, val size: Long, val date: Long, val mimeType: String)
 
 @Composable
-internal fun RecentMedia(refresh: Int) {
+internal fun RecentMedia(refresh: Int, snackbar: SnackbarHostState) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var changed by remember { mutableStateOf(0) }
-    var remove by remember { mutableStateOf<RecentFile?>(null) }
+    var remove by remember { mutableStateOf<List<RecentFile>?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    var selectedUris by remember { mutableStateOf(emptySet<String>()) }
+    var pendingDeletion by remember { mutableStateOf(emptySet<String>()) }
     var filter by remember { mutableStateOf(RecentFilter.ALL) }
     var query by remember { mutableStateOf("") }
     val files by produceState<List<RecentFile>>(initialValue = emptyList(), refresh, changed) {
         value = withContext(Dispatchers.IO) { recentFiles(context) }
     }
-    val visibleFiles = remember(files, filter, query) {
+    val visibleFiles = remember(files, filter, query, pendingDeletion) {
         files.filter { file ->
             val typeMatches = when (filter) {
                 RecentFilter.ALL -> true
@@ -70,11 +80,24 @@ internal fun RecentMedia(refresh: Int) {
                 RecentFilter.AUDIO -> file.mimeType.startsWith("audio/")
             }
             val textMatches = query.isBlank() || file.title.contains(query.trim(), ignoreCase = true) || file.source.contains(query.trim(), ignoreCase = true)
-            typeMatches && textMatches
+            typeMatches && textMatches && file.uri.toString() !in pendingDeletion
         }
     }
+    val selectedFiles = files.filter { it.uri.toString() in selectedUris }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Недавние", style = MaterialTheme.typography.titleLarge)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (selecting) "Выбрано: ${selectedFiles.size}" else "Недавние", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = {
+                selecting = !selecting
+                selectedUris = emptySet()
+            }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (selecting) "Готово" else "Выбрать") }
+        }
+        if (selecting && selectedFiles.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { shareRecentFiles(context, selectedFiles) }) { Text("Поделиться") }
+                TextButton(onClick = { remove = selectedFiles }) { Text("Удалить") }
+            }
+        }
         if (files.isEmpty()) Text("Здесь появятся сохранённые файлы.", style = MaterialTheme.typography.bodyMedium)
         else {
             OutlinedTextField(
@@ -92,7 +115,15 @@ internal fun RecentMedia(refresh: Int) {
             if (visibleFiles.isEmpty()) Text("По этому фильтру файлов нет.", style = MaterialTheme.typography.bodyMedium)
         }
         visibleFiles.take(20).forEach { file ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 72.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable {
+                    if (selecting) {
+                        val key = file.uri.toString()
+                        selectedUris = if (key in selectedUris) selectedUris - key else selectedUris + key
+                    } else openFile(context, file.uri)
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 val thumbnail by produceState<Bitmap?>(initialValue = null, file.uri) {
                     value = withContext(Dispatchers.IO) { loadThumbnail(context, file.uri) }
                 }
@@ -100,34 +131,84 @@ internal fun RecentMedia(refresh: Int) {
                     if (thumbnail != null) Image(thumbnail!!.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop)
                     else Box(contentAlignment = Alignment.Center) { Text("▶") }
                 }
-                Column(Modifier.weight(1f).clickable { openFile(context, file.uri) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(file.title, maxLines = 1, style = MaterialTheme.typography.titleSmall)
                     Text("${file.source} · ${Formatter.formatShortFileSize(context, file.size)} · ${dateLabel(file.date)}", style = MaterialTheme.typography.bodySmall)
                 }
-                TextButton(onClick = { remove = file }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Удалить") }
+                if (selecting) {
+                    androidx.compose.material3.Checkbox(
+                        checked = file.uri.toString() in selectedUris,
+                        onCheckedChange = { checked ->
+                            val key = file.uri.toString()
+                            selectedUris = if (checked) selectedUris + key else selectedUris - key
+                        },
+                    )
+                } else TextButton(onClick = { remove = listOf(file) }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Удалить") }
             }
         }
     }
-    remove?.let { file ->
+    remove?.let { filesToRemove ->
         AlertDialog(
             onDismissRequest = { remove = null },
-            title = { Text("Удалить файл?") },
-            text = { Text("Файл исчезнет из галереи и списка недавних.") },
+            title = { Text(if (filesToRemove.size == 1) "Удалить файл?" else "Удалить ${filesToRemove.size} файлов?") },
+            text = { Text("Файлы исчезнут из галереи и списка недавних.") },
             confirmButton = { TextButton(onClick = {
-                try {
-                    context.contentResolver.delete(file.uri, null, null)
-                    val filesPrefs = context.getSharedPreferences("download_files", Context.MODE_PRIVATE)
-                    filesPrefs.edit().remove(file.uri.toString()).apply()
-                    val history = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
-                    history.edit().apply { history.all.filterValues { it == file.uri.toString() }.keys.forEach { key -> this.remove(key) } }.apply()
+                val uris = filesToRemove.map { it.uri.toString() }.toSet()
+                pendingDeletion = pendingDeletion + uris
+                selectedUris = selectedUris - uris
+                selecting = false
+                changed++
+                scope.launch {
+                    val result = snackbar.showSnackbar(
+                        message = if (uris.size == 1) "Файл удалён из списка" else "Файлы удалены из списка",
+                        actionLabel = "Отменить",
+                        withDismissAction = true,
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        pendingDeletion = pendingDeletion - uris
+                    } else {
+                        try {
+                            withContext(Dispatchers.IO) { deleteRecentFiles(context, filesToRemove) }
+                        } catch (_: SecurityException) {
+                            Toast.makeText(context, "Не удалось удалить файл. Попробуйте удалить его в галерее", Toast.LENGTH_LONG).show()
+                        }
+                        pendingDeletion = pendingDeletion - uris
+                    }
                     changed++
-                } catch (_: SecurityException) {
-                    Toast.makeText(context, "Не удалось удалить файл. Попробуйте удалить его в галерее", Toast.LENGTH_LONG).show()
                 }
                 remove = null
             }) { Text("Удалить") } },
             dismissButton = { TextButton(onClick = { remove = null }) { Text("Отмена") } },
         )
+    }
+}
+
+private fun deleteRecentFiles(context: Context, files: List<RecentFile>) {
+    val uris = files.map { it.uri.toString() }.toSet()
+    uris.forEach { context.contentResolver.delete(Uri.parse(it), null, null) }
+    val filesPrefs = context.getSharedPreferences("download_files", Context.MODE_PRIVATE)
+    filesPrefs.edit().apply { uris.forEach { remove(it) } }.apply()
+    val history = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
+    history.edit().apply {
+        history.all.filterValues { it is String && it in uris }.keys.forEach { remove(it) }
+    }.apply()
+}
+
+private fun shareRecentFiles(context: Context, files: List<RecentFile>) {
+    if (files.isEmpty()) return
+    try {
+        val intent = Intent(if (files.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE)
+            .setType(files.map { it.mimeType }.distinct().singleOrNull() ?: "*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (files.size == 1) intent.putExtra(Intent.EXTRA_STREAM, files.single().uri)
+        else intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(files.map { it.uri }))
+        intent.clipData = ClipData.newUri(context.contentResolver, "Скачай", files.first().uri).apply {
+            files.drop(1).forEach { addItem(ClipData.Item(it.uri)) }
+        }
+        context.startActivity(Intent.createChooser(intent, "Поделиться файлами"))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "Не удалось поделиться файлами", Toast.LENGTH_LONG).show()
     }
 }
 
