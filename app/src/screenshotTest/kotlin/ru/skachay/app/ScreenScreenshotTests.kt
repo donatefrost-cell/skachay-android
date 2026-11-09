@@ -23,6 +23,11 @@ fun WelcomeScreenshot() = WelcomeScreenPreview()
 fun HomeScreenshot() = HomeScreenPreview()
 
 @PreviewTest
+@Preview(name = "Главная · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Composable
+fun HomeLargeModeScreenshot() = HomeLargeModePreview()
+
+@PreviewTest
 @Preview(name = "Главная · загруженный предпросмотр · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
 @Composable
 fun HomePreviewCardScreenshot() = HomePreviewCardPreview()
@@ -34,6 +39,11 @@ fun HomePreviewCardScreenshot() = HomePreviewCardPreview()
 @Preview(name = "Настройки · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f)
 @Composable
 fun SettingsScreenshot() = SettingsScreenPreview()
+
+@PreviewTest
+@Preview(name = "Настройки · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Composable
+fun SettingsLargeModeScreenshot() = SettingsLargeModePreview()
 
 @PreviewTest
 @Preview(name = "Выбор файла · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)

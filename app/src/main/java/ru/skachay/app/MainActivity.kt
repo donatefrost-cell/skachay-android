@@ -876,6 +876,15 @@ internal fun HomeScreenPreview() {
     SkachayPreview { HomeScreen(AppSettings(onboardingComplete = true), refresh = 0, onSettings = {}) }
 }
 
+@Preview(name = "Главная · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
+@Composable
+internal fun HomeLargeModePreview() {
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(density.density, maxOf(density.fontScale, 1.2f))) {
+        SkachayPreview { HomeScreen(AppSettings(onboardingComplete = true, largeMode = true), refresh = 0, onSettings = {}) }
+    }
+}
+
 @Preview(name = "Главная · загруженный предпросмотр · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun HomePreviewCardPreview() {
@@ -911,5 +920,23 @@ internal fun SettingsScreenPreview() {
             onBack = {},
             onDiagnostics = {},
         )
+    }
+}
+
+@Preview(name = "Настройки · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
+@Composable
+internal fun SettingsLargeModePreview() {
+    val context = LocalContext.current
+    val repository = remember(context) { SettingsRepository.forContext(context) }
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(density.density, maxOf(density.fontScale, 1.2f))) {
+        SkachayPreview {
+            SettingsScreen(
+                settings = AppSettings(onboardingComplete = true, mode = UserMode.ADVANCED, largeMode = true),
+                repository = repository,
+                onBack = {},
+                onDiagnostics = {},
+            )
+        }
     }
 }
