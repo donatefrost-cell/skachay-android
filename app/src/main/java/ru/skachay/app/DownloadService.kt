@@ -27,6 +27,7 @@ import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SavedFileName
 import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.SocialFallbackPolicy
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
 import ru.skachay.app.download.YtDlpRuntime
