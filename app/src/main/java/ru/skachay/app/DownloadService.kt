@@ -41,7 +41,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import ru.skachay.app.settings.AppSettings
@@ -63,6 +62,9 @@ import ru.skachay.app.diagnostics.providerFor
 import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.SocialSelection
+import ru.skachay.app.notifications.DownloadNotificationId
+import ru.skachay.app.notifications.DownloadNotificationSnapshot
+import ru.skachay.app.notifications.DownloadNotificationState
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -77,6 +79,9 @@ class DownloadService : Service() {
     private val tiktok = TikTokResolver()
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
+    private val notificationCenter by lazy {
+        DownloadNotificationCenter(this, notifications, ::groupSummaryNotification, GROUP_SUMMARY_ID)
+    }
     private val thumbnailClient by lazy {
         OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
     }
@@ -90,7 +95,6 @@ class DownloadService : Service() {
             }
         }
     }
-    private val nextId = AtomicInteger(100)
     private val lock = Any()
     private var running = 0
     private var latestStartId = 0
@@ -107,7 +111,7 @@ class DownloadService : Service() {
             return START_NOT_STICKY
         }
         val url = shared
-        val id = nextId.incrementAndGet()
+        val id = notificationIdFor(intent, url)
         val overrideQuality = Quality.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_QUALITY) }
         val audioExport = AudioExport.entries.firstOrNull { it.name == intent?.getStringExtra(EXTRA_AUDIO_EXPORT) } ?: AudioExport.SOURCE
         val audioBitrate = AudioBitrate.entries.firstOrNull { it.kilobits == intent?.getIntExtra(EXTRA_AUDIO_BITRATE, 192) } ?: AudioBitrate.K192
@@ -122,12 +126,13 @@ class DownloadService : Service() {
         val overrideDownloadFolder = intent?.getBooleanExtra(EXTRA_OVERRIDE_DOWNLOAD_FOLDER, false) ?: false
         val folderGrantLeased = intent?.getBooleanExtra(EXTRA_FOLDER_GRANT_LEASED, false) ?: false
         val fileName = SavedFileName.clean(intent?.getStringExtra(EXTRA_FILE_NAME))
-        startForeground(FOREGROUND_ID, progressNotification(null, url, id, overrideQuality, fileName))
+        if (!notificationCenter.start(id, progressNotification(null, url, id, overrideQuality, fileName))) {
+            return START_NOT_STICKY
+        }
         synchronized(lock) {
             running++
             latestStartId = startId
         }
-        updateGroupSummary()
         val formatId = intent?.getStringExtra(EXTRA_FORMAT_ID)?.takeIf { Regex("[A-Za-z0-9._-]{1,80}").matches(it) }
         val videoOnly = intent?.getBooleanExtra(EXTRA_VIDEO_ONLY, false) ?: false
         val usePreview = intent?.getBooleanExtra(EXTRA_USE_PREVIEW, false) ?: false
@@ -187,15 +192,12 @@ class DownloadService : Service() {
     }
 
     private fun finishJob() {
-        val active = synchronized(lock) {
+        synchronized(lock) {
             running--
             if (running == 0) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelfResult(latestStartId)
             }
-            running
         }
-        updateGroupSummary(active)
     }
 
     private fun download(
@@ -226,7 +228,7 @@ class DownloadService : Service() {
         }
         val historyKey = baseHistoryKey + optionSuffix
         if (!activeUrls.add(historyKey)) {
-            notifySafely(id, resultNotification("Уже скачивается", "Подождите завершения", null, null, url, id, settings.quality, fileName))
+            notificationCenter.discard(id)
             return
         }
         val provider = providerFor(url)
@@ -255,9 +257,9 @@ class DownloadService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
-                    val notification = progressNotification(percent, url, id, settings.quality, fileName, transferStats.snapshot(), mediaTitle)
-                    startForeground(FOREGROUND_ID, notification)
-                    if (synchronized(lock) { running > 1 }) notifySafely(id, notification)
+                    val transfer = transferStats.snapshot()
+                    val notification = progressNotification(percent, url, id, settings.quality, fileName, transfer, mediaTitle)
+                    notifySafely(id, notification, transfer.averageBytesPerSecond)
                 }
             }
             val detailedReport: (YtDlpProgress) -> Unit = { progress ->
@@ -515,12 +517,12 @@ class DownloadService : Service() {
                 add("${formatBytes(transfer.bytesReceived)} из ${formatBytes(transfer.totalBytes)}")
             }
             transfer?.remainingMillis?.let { add("ещё ${formatDuration(it)}") }
-        }.joinToString(" · ").ifBlank { "Получаю сведения о публикации…" }
+        }.joinToString(" · ")
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
-            .setContentTitle(title ?: if (percent == null) "Получаю сведения…" else "Скачиваю…")
-            .setContentText(text)
+            .setContentTitle(title ?: Uri.parse(url).host?.removePrefix("www.") ?: "Скачай")
+            .setContentText(text.ifBlank { "Подключаюсь к источнику…" })
             .setGroup(GROUP_KEY)
             .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
             .setOngoing(true)
@@ -627,32 +629,43 @@ class DownloadService : Service() {
         return builder.build()
     }
 
-    private fun notifySafely(id: Int, notification: Notification) {
-        try {
-            notifications.notify(id, notification)
-        } catch (_: SecurityException) {
-            // Android can hide notifications if the user declined permission.
-        }
+    private fun notifySafely(id: Int, notification: Notification, speedBytesPerSecond: Long? = null) {
+        notificationCenter.publish(id, notification, speedBytesPerSecond)
     }
 
-    private fun updateGroupSummary(activeCount: Int = synchronized(lock) { running }) {
-        if (activeCount <= 1) {
-            notifications.cancel(GROUP_SUMMARY_ID)
-            return
+    private fun notificationIdFor(intent: Intent?, url: String): Int {
+        val identity = buildString {
+            append(url.length).append(':').append(url)
+            intent?.extras?.let { extras ->
+                extras.keySet().sorted().forEach { key ->
+                    val value = when (val extra = extras.get(key)) {
+                        is IntArray -> extra.joinToString(",")
+                        is LongArray -> extra.joinToString(",")
+                        is BooleanArray -> extra.joinToString(",")
+                        else -> extra.toString()
+                    }
+                    append('|').append(key.length).append(':').append(key)
+                        .append(value.length).append(':').append(value)
+                }
+            }
         }
-        val summary = Notification.Builder(this, CHANNEL)
+        return DownloadNotificationId.from(identity)
+    }
+
+    private fun groupSummaryNotification(activeCount: Int, totalCount: Int, speedBytesPerSecond: Long): Notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_download)
             .setLargeIcon(notificationLargeIcon)
             .setContentTitle("Скачай")
-            .setContentText("Активных загрузок: $activeCount")
+            .setContentText(buildString {
+                append("Скачивание: $activeCount из $totalCount")
+                if (speedBytesPerSecond > 0) append(" · ").append(formatSpeed(speedBytesPerSecond))
+            })
             .setGroup(GROUP_KEY)
             .setGroupSummary(true)
             .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
             .setColor(0xFF534AB7.toInt())
             .setOnlyAlertOnce(true)
             .build()
-        notifySafely(GROUP_SUMMARY_ID, summary)
-    }
 
     private fun loadNotificationThumbnail(url: String?): Bitmap? {
         if (url == null) return null
@@ -726,9 +739,83 @@ class DownloadService : Service() {
         const val EXTRA_OVERRIDE_DOWNLOAD_FOLDER = "override_download_folder"
         const val EXTRA_FOLDER_GRANT_LEASED = "folder_grant_leased"
         private const val CHANNEL = "downloads"
-        private const val FOREGROUND_ID = 1
         private const val GROUP_SUMMARY_ID = Int.MAX_VALUE
         private const val GROUP_KEY = "ru.skachay.app.DOWNLOADS"
         private const val SHARE_REQUEST_OFFSET = 10_000
+    }
+}
+
+private class DownloadNotificationCenter(
+    private val service: Service,
+    private val manager: NotificationManager,
+    private val summary: (Int, Int, Long) -> Notification,
+    private val summaryId: Int,
+) {
+    private val state = DownloadNotificationState<Notification>()
+    private val speeds = mutableMapOf<Int, Long>()
+
+    @Synchronized
+    fun start(id: Int, notification: Notification): Boolean {
+        val snapshot = state.startIfAbsent(id, notification) ?: return false
+        speeds[id] = 0
+        render(snapshot)
+        return true
+    }
+
+    @Synchronized
+    fun publish(id: Int, notification: Notification, speedBytesPerSecond: Long? = null) {
+        if (!state.contains(id)) {
+            notifySafely(id, notification)
+        } else if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) {
+            if (speedBytesPerSecond != null) speeds[id] = speedBytesPerSecond
+            render(state.update(id, notification))
+        } else {
+            speeds.remove(id)
+            render(state.complete(id, notification))
+        }
+    }
+
+    @Synchronized
+    fun discard(id: Int) {
+        speeds.remove(id)
+        render(state.discard(id))
+        try {
+            manager.cancel(id)
+        } catch (_: SecurityException) {
+            // Android can hide notifications if the user declined permission.
+        }
+    }
+
+    private fun render(snapshot: DownloadNotificationSnapshot<Notification>) {
+        if (snapshot.detachForeground) service.stopForeground(Service.STOP_FOREGROUND_DETACH)
+        snapshot.completed?.let { (id, notification) -> notifySafely(id, notification) }
+        snapshot.foregroundId?.let { id ->
+            snapshot.active[id]?.let { notification ->
+                try {
+                    service.startForeground(id, notification)
+                } catch (_: SecurityException) {
+                    notifySafely(id, notification)
+                }
+            }
+        }
+        snapshot.active.forEach { (id, notification) ->
+            if (id != snapshot.foregroundId) notifySafely(id, notification)
+        }
+        try {
+            if (snapshot.showSummary) {
+                val totalSpeed = snapshot.active.keys.sumOf { speeds[it] ?: 0L }
+                manager.notify(summaryId, summary(snapshot.active.size, snapshot.totalCount, totalSpeed))
+            } else manager.cancel(summaryId)
+        } catch (_: SecurityException) {
+            // Android can hide notifications if the user declined permission.
+        }
+    }
+
+    private fun notifySafely(id: Int, notification: Notification) {
+        try {
+            manager.notify(id, notification)
+        } catch (_: SecurityException) {
+            // Android can hide notifications if the user declined permission.
+        }
     }
 }
