@@ -83,4 +83,9 @@ internal object YtDlpOptions {
         request.addOption("--fragment-retries", retries)
         request.addOption("--extractor-retries", retries)
     }
+
+    fun addRuntimeSupport(request: YoutubeDLRequest, url: String, cacheDirectory: String) {
+        request.addOption("--cache-dir", cacheDirectory)
+        if (SourceType.isYouTube(url)) request.addOption("--remote-components", "ejs:github")
+    }
 }

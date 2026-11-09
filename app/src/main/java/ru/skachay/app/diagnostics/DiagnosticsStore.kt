@@ -15,9 +15,26 @@ internal object DiagnosticsStore {
             putString(key(provider, "status"), DiagnosticStatus.RUNNING.name)
             putLong(key(provider, "timestamp"), System.currentTimeMillis())
             DownloadStage.entries.forEach { remove(key(provider, it.name)) }
-            listOf("bytes", "total", "speed", "remaining", "vpn").forEach { remove(key(provider, it)) }
+            listOf("bytes", "total", "speed", "remaining", "vpn", "warnings").forEach { remove(key(provider, it)) }
         }.apply()
         return job
+    }
+
+    @Synchronized
+    fun clearEngineWarnings(context: Context, provider: DownloadProvider) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+            .remove(key(provider, "warnings"))
+            .apply()
+    }
+
+    @Synchronized
+    fun recordEngineWarnings(context: Context, provider: DownloadProvider, warnings: List<String>) {
+        if (warnings.isEmpty()) return
+        val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        val existing = prefs.getString(key(provider, "warnings"), null).orEmpty()
+            .lines().filter(String::isNotBlank)
+        val combined = (existing + warnings).distinctBy { it.lowercase() }.takeLast(24)
+        prefs.edit().putString(key(provider, "warnings"), combined.joinToString("\n")).apply()
     }
 
     @Synchronized
@@ -77,6 +94,7 @@ internal object DiagnosticsStore {
                 prefs.getLong(key(provider, "speed"), -1L).takeIf { prefs.contains(key(provider, "speed")) },
                 prefs.getLong(key(provider, "remaining"), -1L).takeIf { prefs.contains(key(provider, "remaining")) },
                 prefs.getBoolean(key(provider, "vpn"), false).takeIf { prefs.contains(key(provider, "vpn")) },
+                prefs.getString(key(provider, "warnings"), null)?.lines().orEmpty().filter(String::isNotBlank),
             )
         }
     }

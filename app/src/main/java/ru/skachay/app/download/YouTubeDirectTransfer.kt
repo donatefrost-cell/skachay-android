@@ -3,18 +3,9 @@ package ru.skachay.app.download
 import android.content.Context
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
 import ru.skachay.app.diagnostics.DownloadStage
 
 internal object YouTubeDirectTransfer {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
-
     fun download(
         context: Context,
         streams: YouTubeStreams,
@@ -36,7 +27,7 @@ internal object YouTubeDirectTransfer {
         val files = parts.mapIndexed { index, format ->
             val file = File(directory, "youtube-$index.${format.extension}")
             onStage(DownloadStage.TRANSFER)
-            DirectDownloader(client).download(
+            MediaDownloadClient.downloader.download(
                 url = requireNotNull(format.directUrl),
                 destination = file,
                 connections = connections,

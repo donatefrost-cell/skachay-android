@@ -16,7 +16,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
-import ru.skachay.app.download.DirectDownloader
+import ru.skachay.app.download.MediaDownloadClient
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.DownloadFolderGrantRegistry
@@ -72,7 +72,7 @@ private class WifiOnlyRequiredException : IOException()
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
     private val executor = ThreadPoolExecutor(2, 4, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
-    private val downloader = DirectDownloader()
+    private val downloader = MediaDownloadClient.downloader
     private val instagram = InstagramResolver()
     private val tiktok = TikTokResolver()
     private val activeUrls = ConcurrentHashMap.newKeySet<String>()

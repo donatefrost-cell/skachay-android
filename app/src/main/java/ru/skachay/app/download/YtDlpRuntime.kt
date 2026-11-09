@@ -19,6 +19,9 @@ import ru.skachay.app.diagnostics.DownloadStage
 import ru.skachay.app.diagnostics.stageFromYtDlpOutput
 import ru.skachay.app.diagnostics.YtDlpProgress
 import ru.skachay.app.diagnostics.YtDlpProgressParser
+import ru.skachay.app.diagnostics.YtDlpWarningParser
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.providerFor
 import ru.skachay.app.choice.AvailableFormat
 
 internal enum class EngineUpdateResult { UPDATED, ALREADY_CURRENT }
@@ -75,7 +78,11 @@ internal object YtDlpRuntime {
         }
     }
 
-    fun extractPreview(context: Context, url: String): String {
+    fun extractPreview(
+        context: Context,
+        url: String,
+        onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
+    ): String {
         initialize(context)
         val retries = runBlocking { SettingsRepository.forContext(context).settings.first().retries }
         return RetryAfterUpdate.run(
@@ -84,7 +91,8 @@ internal object YtDlpRuntime {
                     val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
                         .addOption("--no-playlist").addOption("--skip-download").addOption("--dump-single-json")
                     YtDlpOptions.addRetries(request, retries)
-                    YoutubeDL.execute(request).out
+                    addRuntimeSupport(context, url, request)
+                    executeWithWarningCapture(request, onWarnings = onWarnings).out
                 }
             },
             update = { update(context, selectedChannel(context)) },
@@ -110,6 +118,7 @@ internal object YtDlpRuntime {
         onDetailedProgress: (YtDlpProgress) -> Unit = {},
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
         embedThumbnail: Boolean = false,
+        onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -121,12 +130,13 @@ internal object YtDlpRuntime {
                         url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries,
                         audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles, videoBitrateLimit, embedThumbnail,
                     )
-                    YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
-                        stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
-                        val detailed = YtDlpProgressParser.parse(line.orEmpty())
+                    addRuntimeSupport(context, url, request)
+                    executeWithWarningCapture(request, UUID.randomUUID().toString(), { progress, _, line ->
+                        stageFromYtDlpOutput(line)?.let(onStage)
+                        val detailed = YtDlpProgressParser.parse(line)
                         if (detailed != null) onDetailedProgress(detailed)
                         else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
-                    }
+                    }, onWarnings)
                 }
             },
             update = { update(context, selectedChannel(context)) },
@@ -154,6 +164,7 @@ internal object YtDlpRuntime {
         onDetailedProgress: (YtDlpProgress) -> Unit = {},
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
         embedThumbnail: Boolean = false,
+        onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
     ): List<File> {
         require(YouTubePlaylistLink.isPurePlaylist(url))
         initialize(context)
@@ -177,12 +188,13 @@ internal object YtDlpRuntime {
                         allowPlaylist = true,
                         playlistAudioOnly = audioOnly,
                     )
-                    YoutubeDL.execute(request, UUID.randomUUID().toString()) { progress, _, line ->
-                        stageFromYtDlpOutput(line.orEmpty())?.let(onStage)
-                        val detailed = YtDlpProgressParser.parse(line.orEmpty())
+                    addRuntimeSupport(context, url, request)
+                    executeWithWarningCapture(request, UUID.randomUUID().toString(), { progress, _, line ->
+                        stageFromYtDlpOutput(line)?.let(onStage)
+                        val detailed = YtDlpProgressParser.parse(line)
                         if (detailed != null) onDetailedProgress(detailed)
                         else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
-                    }
+                    }, onWarnings)
                 }
             },
             update = { update(context, selectedChannel(context)) },
@@ -193,5 +205,27 @@ internal object YtDlpRuntime {
         }.sortedBy { it.name }
         if (files.isEmpty()) throw IOException("No playlist media files produced")
         return files
+    }
+
+    private fun addRuntimeSupport(
+        context: Context,
+        url: String,
+        request: com.yausername.youtubedl_android.YoutubeDLRequest,
+    ) {
+        YtDlpOptions.addRuntimeSupport(request, url, File(context.noBackupFilesDir, "yt-dlp-cache").absolutePath)
+    }
+
+    private fun executeWithWarningCapture(
+        request: com.yausername.youtubedl_android.YoutubeDLRequest,
+        processId: String? = null,
+        callback: ((Float, Long, String) -> Unit)? = null,
+        onWarnings: (List<String>) -> Unit,
+    ): com.yausername.youtubedl_android.YoutubeDLResponse = try {
+        YoutubeDL.execute(request, processId, callback).also { response ->
+            YtDlpWarningParser.parse(response.err).takeIf { it.isNotEmpty() }?.let(onWarnings)
+        }
+    } catch (error: Exception) {
+        YtDlpWarningParser.parse(error.message.orEmpty()).takeIf { it.isNotEmpty() }?.let(onWarnings)
+        throw error
     }
 }

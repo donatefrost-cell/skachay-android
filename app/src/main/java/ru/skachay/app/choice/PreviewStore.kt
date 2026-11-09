@@ -8,6 +8,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import android.os.SystemClock
 import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.providerFor
 
 internal data class CachedPreview(val file: File, val preview: VideoPreview)
 
@@ -31,7 +33,16 @@ internal object PreviewStore {
         val directory = directory(context)
         directory.listFiles()?.filter { PreviewLifetime.isExpired(System.currentTimeMillis() - it.lastModified()) }?.forEach(File::delete)
         val started = SystemClock.elapsedRealtime()
-        val json = YtDlpRuntime.extractPreview(context, url)
+        val warnings = mutableListOf<String>()
+        DiagnosticsStore.clearEngineWarnings(context, providerFor(url))
+        val json = try {
+            YtDlpRuntime.extractPreview(context, url) { captured ->
+                warnings += captured
+                DiagnosticsStore.recordEngineWarnings(context, providerFor(url), captured)
+            }
+        } finally {
+            saveWarnings(context, url, warnings)
+        }
         extractionTimes[key(url)] = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
         val preview = PreviewParser.parse(json) ?: throw IOException("Invalid media metadata")
         val file = file(context, url)
@@ -61,10 +72,33 @@ internal object PreviewStore {
         val usable = if (forDownload) PreviewLifetime.isUsableForDownload(age) else PreviewLifetime.isFresh(age)
         if (!file.isFile || file.length() > MAX_CACHE_BYTES || !usable) return null
         return try {
-            PreviewParser.parse(file.readText(Charsets.UTF_8))?.let { CachedPreview(file, it) }
+            PreviewParser.parse(file.readText(Charsets.UTF_8))?.let { preview ->
+                readWarnings(context, url).takeIf { it.isNotEmpty() }?.let {
+                    DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it)
+                }
+                CachedPreview(file, preview)
+            }
         } catch (_: IOException) {
             null
         }
+    }
+
+    private fun saveWarnings(context: Context, url: String, warnings: List<String>) {
+        val file = warningsFile(context, url)
+        if (warnings.isEmpty()) {
+            file.delete()
+            return
+        }
+        runCatching {
+            file.writeText(warnings.distinctBy { it.lowercase() }.takeLast(24).joinToString("\n"), Charsets.UTF_8)
+        }
+    }
+
+    private fun readWarnings(context: Context, url: String): List<String> = try {
+        warningsFile(context, url).takeIf { it.isFile }?.readLines(Charsets.UTF_8).orEmpty()
+            .filter(String::isNotBlank).takeLast(24)
+    } catch (_: IOException) {
+        emptyList()
     }
 
     private fun directory(context: Context): File = File(context.cacheDir, "previews").apply {
@@ -75,6 +109,8 @@ internal object PreviewStore {
         val name = key(url)
         return File(directory(context), "$name.json")
     }
+
+    private fun warningsFile(context: Context, url: String): File = File(directory(context), "${key(url)}.warnings")
 
     private fun key(url: String): String = MessageDigest.getInstance("SHA-256")
         .digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }

@@ -30,6 +30,7 @@ internal data class DiagnosticEntry(
     val averageBytesPerSecond: Long? = null,
     val remainingMillis: Long? = null,
     val vpnActive: Boolean? = null,
+    val engineWarnings: List<String> = emptyList(),
 )
 
 internal fun providerFor(url: String): DownloadProvider = when {
@@ -59,6 +60,7 @@ internal fun diagnosticLog(entries: List<DiagnosticEntry>): String = buildString
         appendLine("${entry.provider.label}: ${entry.status.label}")
         if (entry.timestamp > 0) appendLine("Последняя попытка: ${dateFormat.format(Date(entry.timestamp))}")
         entry.lastError?.let { appendLine("Последняя ошибка: $it") }
+        entry.engineWarnings.forEach { appendLine("Предупреждение yt-dlp: $it") }
         DownloadStage.entries.forEach { stage ->
             val duration = entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) } ?: "нет данных"
             appendLine("${stage.label}: $duration")

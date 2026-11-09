@@ -71,6 +71,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                     Text(entry.provider.label, style = MaterialTheme.typography.titleLarge)
                     Text(entry.status.label, style = MaterialTheme.typography.titleMedium)
                     entry.lastError?.let { Text("Последняя ошибка: $it") }
+                    if (entry.engineWarnings.isNotEmpty()) {
+                        Text("Предупреждения yt-dlp", style = MaterialTheme.typography.titleSmall)
+                        entry.engineWarnings.forEach { warning ->
+                            Text(warning, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     DownloadStage.entries.forEach { stage ->
                         val duration = entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) }
                             ?: "нет данных"
