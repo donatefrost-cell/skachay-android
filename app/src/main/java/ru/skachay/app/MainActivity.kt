@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,12 +32,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState as rememberHorizontalScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
@@ -82,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
@@ -483,7 +482,6 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
     val scope = rememberCoroutineScope()
     var showQualitySheet by remember { mutableStateOf(false) }
     var showPlatformQualitySheet by remember { mutableStateOf(false) }
-    var showVideoBitrateSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -492,7 +490,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
             Text("Настройки", style = MaterialTheme.typography.headlineMedium)
         }
-        SettingsSection("Режим", R.drawable.ic_settings) {
+        SettingsSection("Режим") {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Выберите, сколько настроек показывать.", style = MaterialTheme.typography.bodyMedium)
                 SegmentedPicker(
@@ -500,45 +498,39 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 ) { mode -> scope.launch { repository.selectMode(mode) } }
             }
         }
-        SettingsSection("Качество", R.drawable.ic_quality) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Авто ограничивает видео до 720p и выбирает H.264.", style = MaterialTheme.typography.bodyMedium)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    listOf(
-                        Quality.AUTO to "Авто 720p", Quality.BEST to "Лучшее 1080p",
-                        Quality.P2160 to "4K", Quality.MAX to "Максимум",
-                    ).forEach { (quality, label) ->
-                        FilterChip(
-                            selected = settings.quality == quality,
-                            onClick = { scope.launch { repository.setQuality(quality) } },
-                            label = { Text(label, maxLines = 1) },
+        SettingsSection("Качество") {
+            Column {
+                SettingsRow(
+                    "Качество по умолчанию",
+                    qualityShortName(settings.quality),
+                    R.drawable.ic_quality,
+                    trailing = { SettingsChevron() },
+                    onClick = { showQualitySheet = true },
+                )
+                if (settings.mode == UserMode.ADVANCED) {
+                    SectionDivider()
+                    SettingsRow(
+                        "Своё качество для каждого приложения",
+                        "Отдельный предел для YouTube",
+                        R.drawable.ic_info,
+                        trailing = { Switch(checked = settings.platformQualityEnabled, onCheckedChange = null) },
+                        onClick = { scope.launch { repository.setPlatformQualityEnabled(!settings.platformQualityEnabled) } },
+                    )
+                    if (settings.platformQualityEnabled) {
+                        SectionDivider()
+                        SettingsRow(
+                            "YouTube",
+                            qualityShortName(settings.qualityFor(DownloadPlatform.YOUTUBE)),
+                            R.drawable.ic_download,
+                            trailing = { SettingsChevron() },
+                            onClick = { showPlatformQualitySheet = true },
                         )
                     }
-                }
-                if (settings.mode == UserMode.ADVANCED) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsRow("Предел разрешения", settings.quality.label, R.drawable.ic_quality,
-                        trailing = { Text("Изменить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
-                        onClick = { showQualitySheet = true })
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsRow("Качество по приложениям", "YouTube · Instagram · TikTok", R.drawable.ic_quality,
-                        trailing = { Text("Настроить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
-                        onClick = { showPlatformQualitySheet = true })
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsRow("Максимальный битрейт видео", settings.videoBitrateLimit.label, R.drawable.ic_quality,
-                        trailing = { Text("Изменить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
-                        onClick = { showVideoBitrateSheet = true })
-                } else if (settings.quality !in listOf(Quality.AUTO, Quality.BEST, Quality.P2160, Quality.MAX)) {
-                    Text("Текущий предел: ${settings.quality.label}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
         if (settings.mode == UserMode.ADVANCED) {
-            SettingsSection("Скачивание", R.drawable.ic_download) {
+            SettingsSection("Скачивание") {
                 Column {
                     SegmentSetting("При отправке ссылки", "", listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"), settings.shareMode) {
                         scope.launch { repository.setShareMode(it) }
@@ -566,7 +558,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         onClick = { scope.launch { repository.setWifiOnly(!settings.wifiOnly) } })
                 }
             }
-            SettingsSection("Файлы", R.drawable.ic_folder) {
+            SettingsSection("Файлы") {
                 Column {
                     SettingsRow("Папка сохранения", "По умолчанию: фото, видео и музыка · Скачай", R.drawable.ic_folder)
                     SectionDivider()
@@ -575,33 +567,40 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                     SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
                 }
             }
-            SettingsSection("Движок", R.drawable.ic_settings) {
+            SettingsSection("Движок") {
                 EngineUpdateControl(settings.engineChannel, repository)
             }
-            SettingsSection("Память и история", R.drawable.ic_memory) { StorageControls() }
-            SettingsSection("О приложении", R.drawable.ic_info) { AboutControls(onDiagnostics) }
-            SettingsSection("Удобство", R.drawable.ic_info) {
-                SettingsRow("Крупный режим", "Увеличивает текст и упрощает чтение", R.drawable.ic_info,
-                    trailing = { Switch(checked = settings.largeMode, onCheckedChange = null) },
-                    onClick = { scope.launch { repository.setLargeMode(!settings.largeMode) } })
-            }
-        } else {
-            SettingsSection("О приложении", R.drawable.ic_info) { AboutControls(onDiagnostics) }
+            SettingsSection("Память и история") { StorageControls() }
         }
+        SettingsSection("Удобство") {
+            SettingsRow("Крупный режим", "Увеличивает текст и упрощает чтение", R.drawable.ic_info,
+                trailing = { Switch(checked = settings.largeMode, onCheckedChange = null) },
+                onClick = { scope.launch { repository.setLargeMode(!settings.largeMode) } })
+        }
+        SettingsSection("О приложении") { AboutControls(onDiagnostics) }
     }
     if (showQualitySheet) {
         ModalBottomSheet(
             onDismissRequest = { showQualitySheet = false },
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Предел разрешения", style = MaterialTheme.typography.headlineSmall)
-                Text("Для выбранного качества будет показан доступный размер.", style = MaterialTheme.typography.bodyMedium)
-                Quality.presets.forEach { preset ->
-                    SettingsRow(preset.label, null, R.drawable.ic_quality,
-                        trailing = { Text(if (settings.quality == preset) "Выбрано" else "", color = MaterialTheme.colorScheme.primary) },
-                        onClick = { scope.launch { repository.setQuality(preset) }; showQualitySheet = false })
-                }
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
+                Text("Авто выбирает совместимое видео до 720p. Для этой ссылки можно будет выбрать точный формат.", style = MaterialTheme.typography.bodyMedium)
+                QualityPresetGrid(settings.quality) { preset -> scope.launch { repository.setQuality(preset) } }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Предел битрейта", style = MaterialTheme.typography.titleMedium)
+                Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val bitrateLimits = VideoBitrateLimit.entries
+                val bitrateIndex = bitrateLimits.indexOf(settings.videoBitrateLimit).coerceAtLeast(0)
+                Slider(
+                    value = bitrateIndex.toFloat(),
+                    onValueChange = { value -> scope.launch { repository.setVideoBitrateLimit(bitrateLimits[value.roundToInt()]) } },
+                    valueRange = 0f..bitrateLimits.lastIndex.toFloat(),
+                    steps = bitrateLimits.size - 2,
+                )
+                Text(bitrateLimits[bitrateIndex].label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                androidx.compose.material3.TextButton(onClick = { showQualitySheet = false }, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
             }
         }
     }
@@ -615,28 +614,12 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Качество по приложениям", style = MaterialTheme.typography.headlineSmall)
-                Text("Для YouTube можно задать предел разрешения. Instagram и TikTok сохраняются в исходном качестве, доступном по ссылке.", style = MaterialTheme.typography.bodyMedium)
+                Text("YouTube сохраняет выбранный предел. Instagram и TikTok отдают исходный файл.", style = MaterialTheme.typography.bodyMedium)
                 PlatformQualityControl("YouTube", settings.qualityFor(DownloadPlatform.YOUTUBE)) {
                     scope.launch { repository.setPlatformQuality(DownloadPlatform.YOUTUBE, it) }
                 }
                 SettingsRow("Instagram", "Исходное качество публикации", R.drawable.ic_quality)
                 SettingsRow("TikTok", "Исходное качество публикации", R.drawable.ic_quality)
-            }
-        }
-    }
-    if (showVideoBitrateSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showVideoBitrateSheet = false },
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Максимальный битрейт видео", style = MaterialTheme.typography.headlineSmall)
-                Text("Ограничивает автоматический выбор исходных YouTube-форматов без перекодирования. Ручной выбор формата имеет приоритет.", style = MaterialTheme.typography.bodyMedium)
-                VideoBitrateLimit.entries.forEach { limit ->
-                    SettingsRow(limit.label, null, R.drawable.ic_quality,
-                        trailing = { Text(if (settings.videoBitrateLimit == limit) "Выбрано" else "", color = MaterialTheme.colorScheme.primary) },
-                        onClick = { scope.launch { repository.setVideoBitrateLimit(limit) }; showVideoBitrateSheet = false })
-                }
             }
         }
     }
@@ -646,30 +629,60 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
 private fun PlatformQualityControl(title: String, selected: Quality, onSelect: (Quality) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberHorizontalScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Quality.AUTO, Quality.P360, Quality.P480, Quality.P720, Quality.P1080, Quality.P1440, Quality.P2160, Quality.MAX).forEach { quality ->
-                FilterChip(
-                    selected = selected == quality,
-                    onClick = { onSelect(quality) },
-                    label = { Text(when (quality) {
-                        Quality.AUTO -> "Авто 720p"
-                        Quality.MAX -> "Максимум"
-                        Quality.P2160 -> "4K"
-                        else -> quality.label.removePrefix("До ")
-                    }) },
-                )
+        QualityPresetGrid(selected, onSelect)
+    }
+}
+
+@Composable
+private fun QualityPresetGrid(selected: Quality, onSelect: (Quality) -> Unit) {
+    val rows = listOf(
+        listOf(Quality.AUTO, Quality.P144, Quality.P240, Quality.P360, Quality.P480),
+        listOf(Quality.P720, Quality.P1080, Quality.P1440, Quality.P2160, Quality.MAX),
+    )
+    val effectiveSelection = if (selected == Quality.BEST) Quality.P1080 else selected
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.forEach { quality ->
+                    FilterChip(
+                        selected = effectiveSelection == quality,
+                        onClick = { onSelect(quality) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(qualityShortName(quality), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                    )
+                }
             }
         }
     }
 }
 
+private fun qualityShortName(quality: Quality): String = when (quality) {
+    Quality.AUTO -> "Авто · 720p"
+    Quality.P144 -> "144p"
+    Quality.P240 -> "240p"
+    Quality.P360 -> "360p"
+    Quality.P480 -> "480p"
+    Quality.P720 -> "720p"
+    Quality.P1080, Quality.BEST -> "1080p"
+    Quality.P1440 -> "1440p"
+    Quality.P2160 -> "4K"
+    Quality.MAX -> "Макс"
+}
+
 @Composable
-private fun SettingsSection(title: String, icon: Int, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun SettingsChevron() {
+    Icon(
+        painterResource(R.drawable.ic_back),
+        contentDescription = "Открыть",
+        modifier = Modifier.size(20.dp).rotate(180f),
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SettingsSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Text(title, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        }
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),

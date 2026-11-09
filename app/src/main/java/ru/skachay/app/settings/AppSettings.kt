@@ -4,6 +4,8 @@ enum class UserMode { SIMPLE, ADVANCED }
 enum class DownloadPlatform { YOUTUBE, OTHER }
 enum class Quality(val maximumHeight: Int?, val label: String) {
     AUTO(720, "Авто — до 720p"),
+    P144(144, "До 144p"),
+    P240(240, "До 240p"),
     P360(360, "До 360p"),
     P480(480, "До 480p"),
     P720(720, "До 720p"),
@@ -14,7 +16,7 @@ enum class Quality(val maximumHeight: Int?, val label: String) {
     MAX(null, "Максимум из доступного");
 
     companion object {
-        val presets = listOf(P360, P480, P720, P1080, P1440, P2160, MAX)
+        val presets = listOf(P144, P240, P360, P480, P720, P1080, P1440, P2160, MAX)
     }
 }
 enum class ShareMode { AUTO, CHOOSE }
@@ -40,6 +42,7 @@ data class AppSettings(
     val largeMode: Boolean = true,
     val wifiOnly: Boolean = false,
     val youtubeQuality: Quality? = null,
+    val platformQualityEnabled: Boolean = false,
     val videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
     val rememberQualityChoice: Boolean = false,
     val lastVideoQualityTier: String? = null,
@@ -48,7 +51,10 @@ data class AppSettings(
     val downloadFolderUri: String? = null,
 )
 
-fun AppSettings.qualityFor(platform: DownloadPlatform): Quality = when (platform) {
-    DownloadPlatform.YOUTUBE -> youtubeQuality
-    DownloadPlatform.OTHER -> null
-} ?: quality
+fun AppSettings.qualityFor(platform: DownloadPlatform): Quality {
+    if (!platformQualityEnabled) return quality
+    return when (platform) {
+        DownloadPlatform.YOUTUBE -> youtubeQuality
+        DownloadPlatform.OTHER -> null
+    } ?: quality
+}

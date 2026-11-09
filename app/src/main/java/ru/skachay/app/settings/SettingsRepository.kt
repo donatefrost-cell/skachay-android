@@ -35,6 +35,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 wifiOnly = preferences[WIFI_ONLY] ?: false,
                 youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
                 videoBitrateLimit = enumOrDefault(preferences[VIDEO_BITRATE_LIMIT], VideoBitrateLimit.ANY),
+                platformQualityEnabled = preferences[PLATFORM_QUALITY_ENABLED] ?: false,
                 rememberQualityChoice = preferences[REMEMBER_QUALITY_CHOICE] ?: false,
                 lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
                 lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
@@ -87,6 +88,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
             }] = quality.name
         }
     }
+    suspend fun setPlatformQualityEnabled(enabled: Boolean) { store.edit { it[PLATFORM_QUALITY_ENABLED] = enabled } }
 
     companion object {
         private val ONBOARDING = booleanPreferencesKey("onboarding_complete")
@@ -101,6 +103,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         private val YOUTUBE_QUALITY = stringPreferencesKey("youtube_quality")
         private val VIDEO_BITRATE_LIMIT = stringPreferencesKey("video_bitrate_limit")
+        private val PLATFORM_QUALITY_ENABLED = booleanPreferencesKey("platform_quality_enabled")
         private val REMEMBER_QUALITY_CHOICE = booleanPreferencesKey("remember_quality_choice")
         private val LAST_VIDEO_QUALITY_TIER = stringPreferencesKey("last_video_quality_tier")
         private val LAST_AUDIO_QUALITY_KIND = stringPreferencesKey("last_audio_quality_kind")

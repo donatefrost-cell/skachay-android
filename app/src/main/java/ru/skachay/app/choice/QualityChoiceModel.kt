@@ -111,7 +111,7 @@ internal object QualityChoiceBuilder {
         if (cards.isEmpty()) return null
         val requested = if (remember) lastTier?.let { name -> QualityVideoTier.entries.firstOrNull { it.name == name } } else null
         val default = requested ?: when (defaultQuality) {
-            Quality.P360, Quality.P480 -> QualityVideoTier.ECONOMICAL
+            Quality.P144, Quality.P240, Quality.P360, Quality.P480 -> QualityVideoTier.ECONOMICAL
             Quality.AUTO, Quality.P720 -> QualityVideoTier.RECOMMENDED
             Quality.MAX -> QualityVideoTier.MAXIMUM
             Quality.BEST, Quality.P1080, Quality.P1440, Quality.P2160 -> null

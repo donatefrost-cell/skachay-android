@@ -1,6 +1,5 @@
 package ru.skachay.app
 
-import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.animation.core.animateFloat
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -35,6 +35,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +58,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -66,6 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import ru.skachay.app.choice.AvailableFormat
+import ru.skachay.app.choice.AdvancedFormatFilter
 import ru.skachay.app.choice.QualityAudioCard
 import ru.skachay.app.choice.QualityAudioKind
 import ru.skachay.app.choice.QualityChoiceBuilder
@@ -73,6 +74,11 @@ import ru.skachay.app.choice.QualityVideoCard
 import ru.skachay.app.choice.QualityVideoTier
 import ru.skachay.app.choice.VideoPreview
 import ru.skachay.app.choice.formatMediaSizeRu
+import ru.skachay.app.choice.filterAdvancedFormats
+import ru.skachay.app.choice.isGalleryCompatible
+import ru.skachay.app.choice.codecFamily
+import ru.skachay.app.choice.formatAdvancedBitrateRu
+import ru.skachay.app.choice.formatAdvancedSizeRu
 
 @Composable
 internal fun QualityChoiceSheetContent(
@@ -345,10 +351,16 @@ internal fun AdvancedFormatsPage(
     onEmbedThumbnailChanged: (Boolean) -> Unit,
     onDownload: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val videoGroups = remember(preview) {
-        preview.formats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
+    var activeFilter by remember(preview) { mutableStateOf(AdvancedFormatFilter.COMPATIBLE) }
+    val filteredFormats = remember(preview, activeFilter) { filterAdvancedFormats(preview.formats, activeFilter) }
+    val videoGroups = remember(filteredFormats) {
+        filteredFormats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
     }
+    var expandedHeights by remember(preview, activeFilter) {
+        mutableStateOf(videoGroups.keys.firstOrNull()?.let { setOf(it) } ?: emptySet())
+    }
+    val audioFormats = remember(filteredFormats) { filteredFormats.filter { !it.hasVideo && it.hasAudio }
+        .sortedWith(compareByDescending<AvailableFormat> { it.extension == "m4a" }.thenByDescending { it.audioBitrate ?: 0 }) }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -364,22 +376,42 @@ internal fun AdvancedFormatsPage(
                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                item { Text("Форматы видео", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-                videoGroups.forEach { (height, formats) ->
-                    item(key = "resolution-$height") {
-                        Text(if (height > 0) "${height}p" else "Разрешение неизвестно", style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
-                    }
-                    items(formats.sortedWith(compareByDescending<AvailableFormat> { it.fps ?: 0 }.thenByDescending { it.videoBitrate ?: 0 }), key = { it.id }) { format ->
-                        AdvancedFormatRow(context, preview, format, selected?.id == format.id, onClick = { onSelectFormat(format) })
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        items(AdvancedFormatFilter.entries) { filter ->
+                            FilterChip(
+                                selected = activeFilter == filter,
+                                onClick = { activeFilter = filter },
+                                label = { Text(filter.label, maxLines = 1) },
+                            )
+                        }
                     }
                 }
-                val audioFormats = preview.formats.filter { !it.hasVideo && it.hasAudio }
-                    .sortedWith(compareByDescending<AvailableFormat> { it.extension == "m4a" }.thenByDescending { it.audioBitrate ?: 0 })
+                item { Text("Форматы видео", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp)) }
+                videoGroups.forEach { (height, formats) ->
+                    item(key = "resolution-$height") {
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                                expandedHeights = if (height in expandedHeights) expandedHeights - height else expandedHeights + height
+                            }.padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(if (height > 0) "${height}p" else "Разрешение неизвестно", style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                            Text("${formats.size} форм.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (height in expandedHeights) "⌃" else "⌄", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+                    if (height in expandedHeights) {
+                        items(formats.sortedWith(compareByDescending<AvailableFormat> { it.fps ?: 0 }.thenByDescending { it.videoBitrate ?: 0 }), key = { it.id }) { format ->
+                            AdvancedFormatRow(preview, format, selected?.id == format.id, onClick = { onSelectFormat(format) })
+                        }
+                    }
+                }
                 if (audioFormats.isNotEmpty()) {
                     item { Text("Форматы звука", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
                     items(audioFormats, key = { it.id }) { format ->
-                        AdvancedFormatRow(context, preview, format, selected?.id == format.id, onClick = { onSelectFormat(format) })
+                        AdvancedFormatRow(preview, format, selected?.id == format.id, onClick = { onSelectFormat(format) })
                     }
                 }
                 item {
@@ -432,25 +464,103 @@ internal fun AdvancedFormatsPage(
     }
 }
 
+@Preview(name = "Все форматы · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
+@Composable
+internal fun AdvancedFormatsPagePreview() {
+    val sample = remember {
+        VideoPreview(
+            title = "Поездка по Карелии и Ладожским шхерам",
+            author = "Канал автора",
+            durationSeconds = 245,
+            thumbnailUrl = null,
+            formats = listOf(
+                AvailableFormat("2160-av1", "webm", "av01.0.08M.08", null, 2160, 30, null, 500_000_000, videoBitrate = 12_000),
+                AvailableFormat("1440-vp9", "webm", "vp09.00.40.08", null, 1440, 60, null, 360_000_000, videoBitrate = 8_500),
+                AvailableFormat("1080-h264", "mp4", "avc1.640028", null, 1080, 30, null, 277_000_000, videoBitrate = 4_700),
+                AvailableFormat("720-h264", "mp4", "avc1.4d401f", null, 720, 30, null, 130_000_000, videoBitrate = 2_500),
+                AvailableFormat("720-h264-audio", "mp4", "avc1.4d401f", "mp4a.40.2", 720, 30, 128, 145_000_000, videoBitrate = 2_500),
+                AvailableFormat("m4a", "m4a", null, "mp4a.40.2", null, null, 128, 5_000_000),
+            ),
+            subtitles = listOf(ru.skachay.app.choice.SubtitleTrack("ru", manual = true, automatic = true)),
+        )
+    }
+    SkachayPreview {
+        AdvancedFormatsPage(
+            preview = sample,
+            source = "YouTube",
+            selected = sample.formats[2],
+            videoOnly = false,
+            fileName = "Поездка по Карелии",
+            fileNameInvalid = false,
+            saveFolderLabel = DEFAULT_SAVE_FOLDER_LABEL,
+            subtitleLanguage = "ru",
+            subtitleAutomatic = false,
+            embedSubtitles = false,
+            embedThumbnail = false,
+            downloadLabel = "Скачать · 282 МБ",
+            downloadEnabled = true,
+            onBack = {},
+            onSelectFormat = {},
+            onVideoOnlyChanged = {},
+            onFileNameChanged = {},
+            onChooseSaveFolder = {},
+            onResetSaveFolder = {},
+            onSubtitleChanged = { _, _ -> },
+            onEmbedSubtitlesChanged = {},
+            onEmbedThumbnailChanged = {},
+            onDownload = {},
+        )
+    }
+}
+
 internal const val DEFAULT_SAVE_FOLDER_LABEL = "Фото, видео и музыка · папка «Скачай»"
 
 @Composable
-private fun AdvancedFormatRow(context: Context, preview: VideoPreview, format: AvailableFormat, selected: Boolean, onClick: () -> Unit) {
-    val compatible = format.extension == "mp4" && format.videoCodec?.startsWith("avc1", true) == true ||
-        format.extension == "m4a" && format.audioCodec?.startsWith("mp4a", true) == true
+private fun AdvancedFormatRow(preview: VideoPreview, format: AvailableFormat, selected: Boolean, onClick: () -> Unit) {
+    val compatible = isGalleryCompatible(format)
+    val bitrate = if (format.hasVideo) format.videoBitrate else format.audioBitrate
+    val estimatedSize = format.sizeBytes ?: preview.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
+        bitrate?.toLong()?.times(125L)?.times(seconds.toLong())
+    }
+    val headerParts = buildList {
+        format.fps?.let { add("$it к/с") }
+        add(codecFamily(format))
+        add(format.extension.uppercase(Locale.forLanguageTag("ru")))
+    }
     Column {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = selected, onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().heightIn(min = 60.dp).selectable(selected = selected, onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RadioButton(selected = selected, onClick = null)
-            Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                Text(advancedFormatLabel(context, format, preview.durationSeconds), style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    if (compatible) "Работает везде" else "Может не воспроизводиться в галерее",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (compatible) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                )
+            Column(Modifier.weight(1f).padding(start = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    headerParts.forEach { part ->
+                        Text(
+                            part,
+                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)).padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatAdvancedBitrateRu(bitrate), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Text(" · ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (compatible) "Работает везде" else "Может не воспроизводиться в галерее",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End) {
+                Text(formatAdvancedSizeRu(estimatedSize), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                Text(if (compatible) "✓" else "!", style = MaterialTheme.typography.labelLarge, color = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
         }
         HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -497,23 +607,6 @@ private fun AdvancedSwitchRow(title: String, checked: Boolean, enabled: Boolean 
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(checked = checked, enabled = enabled, onCheckedChange = null)
     }
-}
-
-private fun advancedFormatLabel(context: Context, format: AvailableFormat, durationSeconds: Int?): String {
-    val values = mutableListOf<String>()
-    if (format.hasVideo) values += format.height?.let { "${it}p" } ?: "Видео"
-    format.fps?.let { values += "$it к/с" }
-    if (format.hasVideo) format.videoCodec?.let { values += it.substringBefore('.') }
-    else format.audioCodec?.let { values += it.substringBefore('.') }
-    values += format.extension.uppercase()
-    if (format.hasVideo) format.videoBitrate?.let { values += "$it кбит/с" }
-    else format.audioBitrate?.let { values += "$it кбит/с" }
-    format.sizeBytes?.let { values += formatMediaSizeRu(it) }
-        ?: durationSeconds?.let { seconds ->
-            val bitrate = if (format.hasVideo) format.videoBitrate else format.audioBitrate
-            bitrate?.let { values += formatMediaSizeRu(it.toLong() * 125L * seconds) }
-        }
-    return values.joinToString(" · ")
 }
 
 @Composable

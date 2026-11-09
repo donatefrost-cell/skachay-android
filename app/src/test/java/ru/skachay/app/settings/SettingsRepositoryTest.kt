@@ -103,9 +103,29 @@ class SettingsRepositoryTest {
         withRepository { repository ->
             repository.setQuality(Quality.P1080)
             repository.setPlatformQuality(DownloadPlatform.YOUTUBE, Quality.P2160)
+            repository.setPlatformQualityEnabled(true)
             val settings = repository.settings.first()
             assertEquals(Quality.P2160, settings.qualityFor(DownloadPlatform.YOUTUBE))
             assertEquals(Quality.P1080, settings.qualityFor(DownloadPlatform.OTHER))
+        }
+    }
+
+    @Test
+    fun perPlatformQualityUsesTheDefaultUntilTheSwitchIsEnabled() = runBlocking {
+        withRepository { repository ->
+            repository.setQuality(Quality.P480)
+            repository.setPlatformQuality(DownloadPlatform.YOUTUBE, Quality.P1080)
+
+            var settings = repository.settings.first()
+            assertFalse(settings.platformQualityEnabled)
+            assertEquals(Quality.P480, settings.qualityFor(DownloadPlatform.YOUTUBE))
+
+            repository.setPlatformQualityEnabled(true)
+
+            settings = repository.settings.first()
+            assertTrue(settings.platformQualityEnabled)
+            assertEquals(Quality.P1080, settings.qualityFor(DownloadPlatform.YOUTUBE))
+            assertEquals(Quality.P480, settings.qualityFor(DownloadPlatform.OTHER))
         }
     }
 
