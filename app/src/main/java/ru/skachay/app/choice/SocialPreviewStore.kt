@@ -12,6 +12,7 @@ import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
+import ru.skachay.app.download.SocialYtDlpResolver
 
 internal object SocialPreviewStore {
     private val lock = Any()
@@ -26,7 +27,7 @@ internal object SocialPreviewStore {
             InstagramLink.supports(url) -> InstagramResolver().resolve(url)
             TikTokLink.supports(url) -> TikTokResolver().resolve(url)
             else -> emptyList()
-        }
+        }.ifEmpty { SocialYtDlpResolver.resolve(context.applicationContext, url) }
         if (items.isEmpty()) throw IOException("No media preview")
         val source = digest(url)
         val now = System.currentTimeMillis()

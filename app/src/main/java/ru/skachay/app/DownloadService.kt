@@ -282,7 +282,10 @@ class DownloadService : Service() {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 var audioOnly = false
                 if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
-                    throw IOException("Не удалось получить прямую ссылку на файл. Проверьте публикацию и повторите попытку.")
+                    if (TikTokLink.isPhoto(url)) throw IOException("Не удалось получить фотографии из слайдшоу TikTok. Откройте публикацию и попробуйте ещё раз.")
+                    if (!SocialFallbackPolicy.ytDlpEnabled(url, RecipeRegistry.current)) {
+                        throw IOException("Прямая ссылка недоступна, а запасной способ для этой площадки отключён правилами.")
+                    }
                 }
                 var playlistFiles: List<File>? = null
                 val file = if (SourceType.isYouTube(url)) {
@@ -359,6 +362,20 @@ class DownloadService : Service() {
                             onDetailedProgress = detailedReport, videoBitrateLimit = settings.videoBitrateLimit, embedThumbnail = embedThumbnail)
                     }
                     }
+                } else if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
+                    transferStats.start()
+                    YtDlpRuntime.download(
+                        context = this,
+                        url = url,
+                        directory = directory,
+                        quality = settings.quality,
+                        onProgress = report,
+                        onStage = timer::switchTo,
+                        retries = settings.retries,
+                        onDetailedProgress = detailedReport,
+                        videoBitrateLimit = settings.videoBitrateLimit,
+                        embedThumbnail = embedThumbnail,
+                    )
                 } else {
                     val direct = File(directory, "direct.tmp")
                     timer.switchTo(DownloadStage.TRANSFER)
