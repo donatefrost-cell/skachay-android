@@ -23,6 +23,11 @@ fun WelcomeScreenshot() = WelcomeScreenPreview()
 fun HomeScreenshot() = HomeScreenPreview()
 
 @PreviewTest
+@Preview(name = "Главная · загруженный предпросмотр · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Composable
+fun HomePreviewCardScreenshot() = HomePreviewCardPreview()
+
+@PreviewTest
 @Preview(name = "Настройки · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
 @Preview(name = "Настройки · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
 @Preview(name = "Настройки · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)

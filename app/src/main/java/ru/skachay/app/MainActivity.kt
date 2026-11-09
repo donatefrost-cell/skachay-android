@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -15,7 +16,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
@@ -46,6 +51,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -61,22 +68,27 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
@@ -86,10 +98,18 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.skachay.app.download.EngineUpdateResult
+import ru.skachay.app.download.InstagramLink
+import ru.skachay.app.download.ResolvedMedia
+import ru.skachay.app.download.SourceType
+import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.choice.PreviewStore
+import ru.skachay.app.choice.SocialPreviewStore
+import ru.skachay.app.choice.VideoPreview
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.EngineChannel
@@ -226,93 +246,234 @@ private fun OnboardingIllustration(step: Int) {
 @Composable
 private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Unit) {
     val context = LocalContext.current
-    var showLink by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf("") }
     val clipboardUrls = remember(refresh) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
         SharedUrl.allIn(text).take(20)
     }
-    Page {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Скачай", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
-            IconButton(onClick = onSettings, modifier = Modifier.size(56.dp)) {
-                Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки", tint = MaterialTheme.colorScheme.primary)
-            }
+    val snackbar = remember { SnackbarHostState() }
+    val firstUrl = remember(link) { SharedUrl.firstIn(link) }
+    val urls = remember(link) { SharedUrl.allIn(link).take(20) }
+    var previewState by remember(firstUrl) { mutableStateOf<HomePreviewState>(HomePreviewState.Empty) }
+
+    LaunchedEffect(refresh, clipboardUrls) {
+        if (link.isBlank() && clipboardUrls.isNotEmpty()) {
+            link = clipboardUrls.joinToString("\n")
+            snackbar.showSnackbar("Ссылка из буфера")
         }
-        UpdateBanner()
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Как скачать видео", style = MaterialTheme.typography.titleLarge)
-                Text("1. Откройте видео или фото")
-                Text("2. Нажмите «Поделиться»")
-                Text("3. Выберите «Скачай»")
-            }
+    }
+    LaunchedEffect(firstUrl) {
+        val url = firstUrl
+        if (url == null || !(SourceType.isYouTube(url) || InstagramLink.supports(url) || TikTokLink.supports(url))) {
+            previewState = HomePreviewState.Empty
+            return@LaunchedEffect
         }
-        if (clipboardUrls.isNotEmpty()) {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        if (clipboardUrls.size == 1) "Скачать ссылку из буфера?" else "В буфере ${clipboardUrls.size} ссылок",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(clipboardUrls.take(3).joinToString("\n"), style = MaterialTheme.typography.bodySmall, maxLines = 3)
-                    FilledTonalButton(onClick = {
-                        if (clipboardUrls.size == 1) {
-                            context.startActivity(Intent(context, ChoiceActivity::class.java)
-                                .putExtra(DownloadService.EXTRA_URL, clipboardUrls.single())
-                                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(clipboardUrls.single()).name))
-                        } else {
-                            startBatchDownloads(context, clipboardUrls, settings)
+        previewState = HomePreviewState.Loading
+        delay(350)
+        previewState = try {
+            withContext(Dispatchers.IO) {
+                when {
+                    SourceType.isYouTube(url) -> HomePreviewState.Video(PreviewStore.getOrFetch(context.applicationContext, url).preview)
+                    InstagramLink.supports(url) || TikTokLink.supports(url) -> {
+                        val preview = SocialPreviewStore.getOrFetch(context.applicationContext, url)
+                        HomePreviewState.Social(
+                            count = preview.items.size,
+                            thumbnailUrl = preview.items.firstOrNull { it.type == ResolvedMedia.Kind.IMAGE }?.url,
+                        )
+                    }
+                    else -> HomePreviewState.Empty
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            HomePreviewState.Failed
+        }
+    }
+
+    fun openChooser(url: String) {
+        context.startActivity(Intent(context, ChoiceActivity::class.java)
+            .putExtra(DownloadService.EXTRA_URL, url)
+            .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name))
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Page {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Скачай", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
+                IconButton(onClick = onSettings, modifier = Modifier.size(56.dp)) {
+                    Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            UpdateBanner()
+            Text("Вставьте ссылку или выберите «Поделиться» в приложении с видео или фото.", style = MaterialTheme.typography.bodyLarge)
+            OutlinedTextField(
+                value = link,
+                onValueChange = { link = it.take(20_000) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Ссылка на видео или фото") },
+                placeholder = { Text("https://…") },
+                minLines = 1,
+                maxLines = 4,
+                trailingIcon = {
+                    if (link.isNotBlank()) {
+                        IconButton(onClick = { link = "" }) {
+                            Icon(painterResource(R.drawable.ic_clear), contentDescription = "Очистить ссылку", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                        Text(if (clipboardUrls.size == 1) "Открыть выбор" else "Скачать ${clipboardUrls.size} ссылок")
+                    } else {
+                        IconButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            link = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().take(20_000)
+                        }) {
+                            Icon(painterResource(R.drawable.ic_paste), contentDescription = "Вставить ссылку", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                },
+                supportingText = {
+                    when {
+                        urls.size > 1 -> Text("Ссылок: ${urls.size}")
+                        firstUrl != null -> Text("Ссылка распознана")
+                        link.isNotBlank() -> Text("В этой ссылке не найден поддерживаемый адрес")
+                    }
+                },
+            )
+            when {
+                firstUrl != null && urls.size == 1 -> HomePreviewCard(
+                    url = firstUrl,
+                    state = previewState,
+                    quality = settings.qualityForUrl(firstUrl).label,
+                    onOpen = { openChooser(firstUrl) },
+                )
+                urls.size > 1 -> Card(
+                    Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Несколько ссылок", style = MaterialTheme.typography.titleMedium)
+                        Text("Будет добавлено до ${urls.size} загрузок.", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
+            Button(
+                enabled = urls.isNotEmpty(),
+                onClick = {
+                    if (urls.size > 1) startBatchDownloads(context, urls, settings) else openChooser(urls.single())
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            ) {
+                Text(when {
+                    urls.size > 1 -> "Продолжить · ${urls.size} ссылок"
+                    urls.size == 1 -> "Выбрать качество"
+                    else -> "Вставьте ссылку"
+                })
+            }
+            PermissionPrompt()
+            RecentMedia(refresh)
         }
-        Button(onClick = {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            link = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().take(20_000)
-            showLink = true
-        }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Вставить ссылку") }
-        PermissionPrompt()
-        RecentMedia(refresh)
-    }
-    if (showLink) {
-        AlertDialog(
-            onDismissRequest = { showLink = false },
-            title = { Text("Ссылка на видео или фото") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = link,
-                        onValueChange = { link = it.take(20_000) },
-                        label = { Text("Ссылки") },
-                        supportingText = { Text("Можно вставить несколько ссылок — по одной на строку.") },
-                        minLines = 3,
-                        maxLines = 8,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    val count = SharedUrl.allIn(link).size
-                    if (count > 1) Text("Будет добавлено: ${count.coerceAtMost(20)} загрузок", style = MaterialTheme.typography.bodyMedium)
-                }
-            },
-            confirmButton = { TextButton(enabled = SharedUrl.firstIn(link) != null, onClick = {
-                val urls = SharedUrl.allIn(link).take(20)
-                if (urls.isEmpty()) return@TextButton
-                if (urls.size > 1) {
-                    startBatchDownloads(context, urls, settings)
-                    showLink = false
-                    return@TextButton
-                }
-                context.startActivity(Intent(context, ChoiceActivity::class.java)
-                    .putExtra(DownloadService.EXTRA_URL, urls.single())
-                    .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(urls.single()).name))
-                showLink = false
-            }) { Text(if (SharedUrl.allIn(link).size > 1) "Скачать список" else "Продолжить") } },
-            dismissButton = { TextButton(onClick = { showLink = false }) { Text("Отмена") } },
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
         )
+    }
+}
+
+private sealed interface HomePreviewState {
+    data object Empty : HomePreviewState
+    data object Loading : HomePreviewState
+    data object Failed : HomePreviewState
+    data class Video(val preview: VideoPreview) : HomePreviewState
+    data class Social(val count: Int, val thumbnailUrl: String?) : HomePreviewState
+}
+
+@Composable
+private fun HomePreviewCard(url: String, state: HomePreviewState, quality: String, onOpen: () -> Unit) {
+    val source = when {
+        SourceType.isYouTube(url) -> "YouTube"
+        InstagramLink.supports(url) -> "Instagram"
+        TikTokLink.supports(url) -> "TikTok"
+        else -> android.net.Uri.parse(url).host.orEmpty()
+    }
+    val thumbnail = when (state) {
+        is HomePreviewState.Video -> state.preview.thumbnailUrl
+        is HomePreviewState.Social -> state.thumbnailUrl
+        else -> null
+    }
+    Card(
+        Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                PreviewThumbnail(thumbnail)
+                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    when (state) {
+                        HomePreviewState.Empty -> Text("Подготовим выбор файла", style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                        HomePreviewState.Loading -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HomeSkeletonLine(0.82f, 16.dp)
+                            HomeSkeletonLine(0.58f, 12.dp)
+                            Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        HomePreviewState.Failed -> {
+                            Text("Предпросмотр недоступен", style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text("Продолжите — приложение попробует скачать файл.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        is HomePreviewState.Video -> {
+                            Text(state.preview.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(state.preview.author ?: source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                        is HomePreviewState.Social -> {
+                            Text(if (state.count == 1) "Публикация готова" else "Файлов: ${state.count}", style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text("$source · оригинальное качество", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            if (SourceType.isYouTube(url)) {
+                Text("По умолчанию · $quality", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
+                Text("Оригинал · качество доступно по ссылке", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            FilledTonalButton(onClick = onOpen, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                Text(if (InstagramLink.supports(url) || TikTokLink.supports(url)) "Выбрать файлы" else "Открыть выбор качества")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSkeletonLine(widthFraction: Float, height: androidx.compose.ui.unit.Dp) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "home preview shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.8f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(850),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "home preview shimmer alpha",
+    )
+    Box(
+        Modifier.fillMaxWidth(widthFraction).heightIn(min = height).clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = alpha)),
+    )
+}
+
+@Composable
+private fun PreviewThumbnail(url: String?) {
+    val bitmap by produceState<Bitmap?>(initialValue = null, url) {
+        value = url?.let { imageUrl -> withContext(Dispatchers.IO) { loadThumbnail(imageUrl, maxDimension = 320) } }
+    }
+    Box(
+        Modifier.size(width = 104.dp, height = 60.dp).clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface),
+    ) {
+        if (bitmap != null) {
+            Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Icon(painterResource(R.drawable.ic_download), contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.Center).size(24.dp))
+        }
     }
 }
 
@@ -700,6 +861,26 @@ internal fun WelcomeScreenPreview() {
 @Composable
 internal fun HomeScreenPreview() {
     SkachayPreview { HomeScreen(AppSettings(onboardingComplete = true), refresh = 0, onSettings = {}) }
+}
+
+@Preview(name = "Главная · загруженный предпросмотр · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
+@Composable
+internal fun HomePreviewCardPreview() {
+    val preview = VideoPreview(
+        title = "Пример очень длинного названия видео для проверки переноса текста и отсутствия обрезания заголовка",
+        author = "Семейный канал",
+        durationSeconds = 125,
+        thumbnailUrl = null,
+        formats = emptyList(),
+    )
+    SkachayPreview {
+        HomePreviewCard(
+            url = "https://www.youtube.com/watch?v=preview",
+            state = HomePreviewState.Video(preview),
+            quality = "Авто · 720p",
+            onOpen = {},
+        )
+    }
 }
 
 @Preview(name = "Настройки · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
