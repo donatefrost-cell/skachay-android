@@ -1161,20 +1161,24 @@ internal fun SettingsScreenPreview() {
 @Composable
 internal fun QualityPresetSettingsPreview() {
     SkachayPreview {
-        ModalBottomSheet(
-            onDismissRequest = {},
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        ) {
-            Column(
-                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.94f),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
             ) {
-                Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
-                QualityPresetGrid(Quality.P1440) {}
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall)
-                BitrateLimitControl("Предел битрейта", VideoBitrateLimit.K4000) {}
-                TextButton(onClick = {}, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
+                Column(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
+                    QualityPresetGrid(Quality.P1440) {}
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall)
+                    BitrateLimitControl("Предел битрейта", VideoBitrateLimit.K4000) {}
+                    TextButton(onClick = {}, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
+                }
             }
         }
     }
