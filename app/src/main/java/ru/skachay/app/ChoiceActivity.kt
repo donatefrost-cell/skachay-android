@@ -2,7 +2,6 @@ package ru.skachay.app
 
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -10,7 +9,6 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.text.format.Formatter
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,8 +39,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -51,7 +47,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,8 +62,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -76,7 +69,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.Locale
@@ -94,11 +86,6 @@ import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreview
 import ru.skachay.app.choice.SocialPreviewStore
 import ru.skachay.app.choice.VideoPreview
-import ru.skachay.app.choice.QualityAudioKind
-import ru.skachay.app.choice.QualityChoiceBuilder
-import ru.skachay.app.choice.QualityVideoCard
-import ru.skachay.app.choice.QualityVideoTier
-import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.download.InstagramLink
@@ -108,10 +95,11 @@ import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.YouTubeFormatSelector
 import ru.skachay.app.download.YouTubePlaylistLink
+import ru.skachay.app.choice.FormatSelection
+import ru.skachay.app.choice.FormatSelectionResolver
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.UserMode
-import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.SkachayTheme
 
 private sealed interface PreviewState {
@@ -179,22 +167,10 @@ class ChoiceActivity : ComponentActivity() {
                 val settingsRepository = remember { SettingsRepository.forContext(applicationContext) }
                 val coroutineScope = rememberCoroutineScope()
                 var quality by remember { mutableStateOf(initial) }
-                var videoBitrateLimit by remember { mutableStateOf(VideoBitrateLimit.ANY) }
-                var selected by remember { mutableStateOf<AvailableFormat?>(null) }
-                var selectedVideoTier by remember { mutableStateOf<QualityVideoTier?>(null) }
-                var videoOnly by remember { mutableStateOf(false) }
-                var audioMode by remember { mutableStateOf(false) }
-                var showAdvancedPage by remember { mutableStateOf(false) }
+                var formatSelection by remember(url) { mutableStateOf(FormatSelection(qualityPreset = initial)) }
                 var slowSearch by remember { mutableStateOf(false) }
                 var rememberChoice by remember { mutableStateOf(false) }
                 var advancedMode by remember { mutableStateOf(false) }
-                var selectedAudioKind by remember { mutableStateOf<QualityAudioKind?>(null) }
-                var audioExport by remember { mutableStateOf(AudioExport.SOURCE) }
-                var audioBitrate by remember { mutableStateOf(AudioBitrate.K128) }
-                var subtitleLanguage by remember { mutableStateOf<String?>(null) }
-                var subtitleAutomatic by remember { mutableStateOf(false) }
-                var embedSubtitles by remember { mutableStateOf(false) }
-                var embedThumbnail by remember { mutableStateOf(false) }
                 var selectedItems by remember(url) { mutableStateOf<Set<Int>>(emptySet()) }
                 var fileName by remember(url) { mutableStateOf(intent.getStringExtra(DownloadService.EXTRA_FILE_NAME).orEmpty().take(256)) }
                 var downloadFolderUri by remember(url) { mutableStateOf<Uri?>(null) }
@@ -220,35 +196,26 @@ class ChoiceActivity : ComponentActivity() {
                     if (state is PreviewState.Loading) {
                         state = try {
                             val appSettings = withContext(Dispatchers.IO) { settingsRepository.settings.first() }
-                            videoBitrateLimit = appSettings.videoBitrateLimit
                             rememberChoice = appSettings.rememberQualityChoice
                             advancedMode = appSettings.mode == UserMode.ADVANCED
                             downloadFolderUri = appSettings.downloadFolderUri?.let { Uri.parse(it) }
                             DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, appSettings.downloadFolderUri)
                             if (isYouTube) {
                                 val cached = withContext(Dispatchers.IO) { PreviewStore.getOrFetch(applicationContext, url) }
-                                val cards = QualityChoiceBuilder.videoCards(cached.preview)
                                 val requestedId = intent.getStringExtra(DownloadService.EXTRA_FORMAT_ID)
-                                val initialVideo = QualityChoiceBuilder.initialVideoChoice(
-                                    cards, quality, appSettings.rememberQualityChoice, appSettings.lastVideoQualityTier,
-                                )
-                                val initialAudio = QualityChoiceBuilder.initialAudioChoice(
-                                    QualityChoiceBuilder.audioCards(cached.preview), appSettings.rememberQualityChoice, appSettings.lastAudioQualityKind,
-                                )
-                                selectedAudioKind = initialAudio?.kind
-                                val restoreAudioMode = appSettings.rememberQualityChoice && appSettings.lastQualityWasAudio
-                                val requestedAudio = cached.preview.formats.firstOrNull { it.id == requestedId && !it.hasVideo && it.hasAudio }
-                                val requestedVideo = cards.firstOrNull { it.video.id == requestedId }
-                                if (requestedAudio != null || restoreAudioMode) {
-                                    audioMode = true
-                                    selected = requestedAudio ?: initialAudio?.source
-                                } else {
-                                    selected = requestedVideo?.video ?: initialVideo?.video
+                                val savedId = requestedId ?: appSettings.lastFormatId.takeIf { appSettings.rememberQualityChoice }
+                                val savedFormat = cached.preview.formats.firstOrNull { it.id == savedId }
+                                val restoreAudioMode = when {
+                                    requestedId != null -> savedFormat?.let { !it.hasVideo && it.hasAudio } == true
+                                    else -> appSettings.rememberQualityChoice && appSettings.lastQualityWasAudio
                                 }
-                                selectedVideoTier = requestedVideo?.tier ?: initialVideo?.tier
-                                if (audioMode) {
-                                    audioExport = if (selectedAudioKind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
-                                }
+                                formatSelection = FormatSelection(
+                                    qualityPreset = quality,
+                                    bitrateStop = appSettings.videoBitrateLimit,
+                                    audio = restoreAudioMode,
+                                    pinnedFormatId = savedId,
+                                    audioExport = if (restoreAudioMode && appSettings.lastAudioQualityKind == "COMPACT_MP3") AudioExport.MP3 else AudioExport.SOURCE,
+                                )
                                 PreviewState.Ready(cached)
                             } else {
                                 val preview = withContext(Dispatchers.IO) { SocialPreviewStore.getOrFetch(applicationContext, url) }
@@ -269,21 +236,13 @@ class ChoiceActivity : ComponentActivity() {
                 LaunchedEffect(state) { if (state !is PreviewState.Loading) slowSearch = false }
                 var confirmLargeDownload by remember(url) { mutableStateOf(false) }
                 val previewForEstimate = (state as? PreviewState.Ready)?.cached?.preview
-                val videoChoices = remember(previewForEstimate) { previewForEstimate?.let { QualityChoiceBuilder.videoCards(it) }.orEmpty() }
-                val audioChoices = remember(previewForEstimate) { previewForEstimate?.let { QualityChoiceBuilder.audioCards(it) }.orEmpty() }
-                val selectedVideoChoice = videoChoices.firstOrNull { it.video.id == selected?.id }
-                val selectedAudioChoice = audioChoices.firstOrNull { it.kind == selectedAudioKind }
-                val estimatedSize = when {
-                    isYouTube && audioMode -> selectedAudioChoice?.estimatedSizeBytes
-                    isYouTube && !videoOnly && selectedVideoChoice != null -> selectedVideoChoice.estimatedSizeBytes
-                    isYouTube -> previewForEstimate?.let {
-                        YouTubeFormatSelector.estimate(it, quality, selected, videoOnly, videoBitrateLimit)
-                    }
-                    else -> null
+                val selected = remember(previewForEstimate, formatSelection) {
+                    previewForEstimate?.let { FormatSelectionResolver.resolve(it.formats, formatSelection) }
                 }
+                val estimatedSize = if (isYouTube) previewForEstimate?.let { FormatSelectionResolver.estimateBytes(it, formatSelection) } else null
                 val beginDownload: (Boolean) -> Unit = { downloadPlaylist ->
                     val social = state as? PreviewState.SocialReady
-                    val playlistQuality = if (downloadPlaylist && !audioMode) when (selected?.height ?: Int.MAX_VALUE) {
+                    val playlistQuality = if (downloadPlaylist && !formatSelection.audio) when (selected?.height ?: Int.MAX_VALUE) {
                         in 0..360 -> Quality.P360
                         in 361..480 -> Quality.P480
                         in 481..720 -> Quality.P720
@@ -293,12 +252,12 @@ class ChoiceActivity : ComponentActivity() {
                         else -> Quality.MAX
                     } else quality
                     startDownload(this@ChoiceActivity, url, playlistQuality, usePreview = state is PreviewState.Ready && !downloadPlaylist,
-                        formatId = selected?.id.takeUnless { downloadPlaylist }, videoOnly = videoOnly && !downloadPlaylist, socialPreviewId = social?.cached?.id,
+                        formatId = selected?.id.takeUnless { downloadPlaylist }, videoOnly = formatSelection.videoOnly && !downloadPlaylist, socialPreviewId = social?.cached?.id,
                         selectedItems = social?.let { selectedItems.sorted().toIntArray() }, fileName = cleanedFileName,
-                        audioExport = audioExport, audioBitrate = audioBitrate.kilobits,
-                        subtitleLanguage = subtitleLanguage, subtitleAutomatic = subtitleAutomatic,
-                        embedSubtitles = embedSubtitles, embedThumbnail = embedThumbnail,
-                        allowPlaylist = downloadPlaylist, playlistAudioOnly = downloadPlaylist && audioMode,
+                        audioExport = formatSelection.audioExport, audioBitrate = formatSelection.audioBitrate.kilobits,
+                        subtitleLanguage = formatSelection.subtitleLanguage, subtitleAutomatic = formatSelection.subtitleAutomatic,
+                        embedSubtitles = formatSelection.embedSubtitles, embedThumbnail = formatSelection.embedThumbnail,
+                        allowPlaylist = downloadPlaylist, playlistAudioOnly = downloadPlaylist && formatSelection.audio,
                         downloadFolderUri = downloadFolderUri?.toString(), overrideDownloadFolder = true)
                     finish()
                 }
@@ -308,132 +267,65 @@ class ChoiceActivity : ComponentActivity() {
                         else -> beginDownload(false)
                     }
                 }
-                BackHandler(enabled = showAdvancedPage) { showAdvancedPage = false }
-                val selectedTier = selectedVideoTier ?: selectedVideoChoice?.tier
-                val downloadLabel = "Скачать" + estimatedSize?.let { " · ${ru.skachay.app.choice.formatMediaSizeRu(it).removePrefix("≈")}" }.orEmpty()
-                if (showAdvancedPage && previewForEstimate != null) {
-                    AdvancedFormatsPage(
-                        preview = previewForEstimate,
-                        source = "YouTube",
-                        selected = selected,
-                        videoOnly = videoOnly,
-                        fileName = fileName,
-                        fileNameInvalid = invalidFileName,
-                        saveFolderLabel = downloadFolderUri?.let(::documentFolderLabel) ?: DEFAULT_SAVE_FOLDER_LABEL,
-                        subtitleLanguage = subtitleLanguage,
-                        subtitleAutomatic = subtitleAutomatic,
-                        embedSubtitles = embedSubtitles,
-                        embedThumbnail = embedThumbnail,
-                        downloadLabel = downloadLabel,
-                        downloadEnabled = !invalidFileName,
-                        onBack = { showAdvancedPage = false },
-                        onSelectFormat = { format ->
-                            selected = format
-                            videoOnly = false
-                            if (!format.hasVideo && format.hasAudio) {
-                                audioMode = true
-                                selectedAudioKind = audioChoices.firstOrNull { it.source.id == format.id }?.kind ?: QualityAudioKind.BEST_M4A
-                                audioExport = AudioExport.SOURCE
-                            } else {
-                                audioMode = false
-                                audioExport = AudioExport.SOURCE
-                                selectedVideoTier = videoChoices.firstOrNull { it.video.id == format.id }?.tier ?: selectedVideoTier
-                            }
-                        },
-                        onVideoOnlyChanged = { videoOnly = it },
-                        onFileNameChanged = { fileName = it },
-                        onChooseSaveFolder = { folderPicker.launch(downloadFolderUri) },
-                        onResetSaveFolder = {
-                            downloadFolderUri = null
-                            DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, null)
-                            coroutineScope.launch { settingsRepository.setDownloadFolderUri(null) }
-                        },
-                        onSubtitleChanged = { language, automatic -> subtitleLanguage = language; subtitleAutomatic = automatic; if (language == null) embedSubtitles = false },
-                        onEmbedSubtitlesChanged = { embedSubtitles = it },
-                        onEmbedThumbnailChanged = { embedThumbnail = it },
-                        onDownload = requestDownload,
-                    )
-                    if (confirmLargeDownload && estimatedSize != null) {
-                        AlertDialog(
-                            onDismissRequest = { confirmLargeDownload = false },
-                            title = { Text("Большой файл") },
-                            text = { Text("Размер видео примерно ${android.text.format.Formatter.formatShortFileSize(this@ChoiceActivity, estimatedSize)}. Продолжить загрузку?") },
-                            confirmButton = { TextButton(onClick = { confirmLargeDownload = false; beginDownload(false) }) { Text("Скачать всё равно") } },
-                            dismissButton = { TextButton(onClick = { confirmLargeDownload = false }) { Text("Отмена") } },
+                LaunchedEffect(rememberChoice, formatSelection.audio, selected?.id, formatSelection.audioExport) {
+                    if (rememberChoice && selected != null) {
+                        settingsRepository.setLastQualityChoices(
+                            videoTier = null,
+                            audioKind = if (formatSelection.audio) {
+                                if (formatSelection.audioExport == AudioExport.MP3) "COMPACT_MP3" else "BEST_M4A"
+                            } else null,
+                            wasAudio = formatSelection.audio,
+                            formatId = selected.id,
                         )
                     }
-                } else if (isYouTube) {
+                }
+                if (isYouTube) {
                     ModalBottomSheet(
                         onDismissRequest = { finish() },
                         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     ) {
                         QualityChoiceSheetContent(
                             preview = previewForEstimate,
-                            source = previewForEstimate?.author?.takeIf { it.isNotBlank() } ?: "YouTube",
+                            source = "YouTube",
                             loading = state is PreviewState.Loading,
                             slowSearch = slowSearch,
                             errorMessage = if (state is PreviewState.Failed) "Не удалось получить список форматов. Можно скачать автоматически." else null,
                             advancedMode = advancedMode,
-                            audioMode = audioMode,
-                            selectedVideoId = selected?.id,
-                            selectedAudioKind = selectedAudioKind,
-                            videoChoices = videoChoices,
-                            audioChoices = audioChoices,
+                            selection = formatSelection,
+                            selectedFormat = selected,
                             rememberChoice = rememberChoice,
                             estimatedSizeBytes = estimatedSize,
-                            downloadEnabled = state !is PreviewState.Loading && !invalidFileName && (!audioMode || selectedAudioChoice != null),
-                            onAudioModeChanged = { enableAudio ->
-                                audioMode = enableAudio
-                                videoOnly = false
-                                if (enableAudio) {
-                                    val choice = selectedAudioChoice ?: audioChoices.firstOrNull()
-                                    selectedAudioKind = choice?.kind
-                                    selected = choice?.source
-                                    audioExport = if (choice?.kind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
-                                    audioBitrate = AudioBitrate.K128
-                                    subtitleLanguage = null
-                                    embedSubtitles = false
-                                    if (rememberChoice) coroutineScope.launch {
-                                        settingsRepository.setLastQualityChoices(selectedTier?.name, choice?.kind?.name, wasAudio = true)
-                                    }
-                                } else {
-                                    val choice = selectedVideoChoice ?: videoChoices.firstOrNull { it.recommended } ?: videoChoices.firstOrNull()
-                                    selected = choice?.video
-                                    selectedVideoTier = choice?.tier
-                                    audioExport = AudioExport.SOURCE
-                                    if (rememberChoice) coroutineScope.launch {
-                                        settingsRepository.setLastQualityChoices(choice?.tier?.name, selectedAudioKind?.name, wasAudio = false)
-                                    }
-                                }
-                            },
-                            onVideoChoice = { choice ->
-                                selected = choice.video
-                                selectedVideoTier = choice.tier
-                                audioMode = false
-                                videoOnly = false
-                                audioExport = AudioExport.SOURCE
-                                if (rememberChoice) coroutineScope.launch {
-                                    settingsRepository.setLastQualityChoices(choice.tier.name, selectedAudioKind?.name, wasAudio = false)
-                                }
-                            },
-                            onAudioChoice = { choice ->
-                                selectedAudioKind = choice.kind
-                                selected = choice.source
-                                audioMode = true
-                                audioExport = if (choice.kind == QualityAudioKind.COMPACT_MP3) AudioExport.MP3 else AudioExport.SOURCE
-                                audioBitrate = AudioBitrate.K128
-                                if (rememberChoice) coroutineScope.launch {
-                                    settingsRepository.setLastQualityChoices(selectedTier?.name, choice.kind.name, wasAudio = true)
-                                }
+                            downloadEnabled = state !is PreviewState.Loading && !invalidFileName && (!formatSelection.audio || selected?.hasAudio == true),
+                            fileName = fileName,
+                            fileNameInvalid = invalidFileName,
+                            saveFolderLabel = downloadFolderUri?.let(::documentFolderLabel) ?: DEFAULT_SAVE_FOLDER_LABEL,
+                            onSelectionChanged = { formatSelection = it },
+                            onFormatSelected = { format ->
+                                formatSelection = formatSelection.copy(
+                                    audio = !format.hasVideo && format.hasAudio,
+                                    pinnedFormatId = format.id,
+                                    videoOnly = formatSelection.videoOnly && format.hasVideo && !format.hasAudio,
+                                    audioExport = AudioExport.SOURCE,
+                                )
                             },
                             onRememberChoiceChanged = { enabled ->
                                 rememberChoice = enabled
-                                coroutineScope.launch {
-                                    settingsRepository.setRememberQualityChoice(enabled)
-                                    if (enabled) settingsRepository.setLastQualityChoices(selectedTier?.name, selectedAudioKind?.name, wasAudio = audioMode)
-                                }
+                                coroutineScope.launch { settingsRepository.setRememberQualityChoice(enabled) }
                             },
-                            onOpenAdvanced = { showAdvancedPage = true },
+                            onFileNameChanged = { fileName = it },
+                            onChooseSaveFolder = { folderPicker.launch(downloadFolderUri) },
+                            onResetSaveFolder = {
+                                downloadFolderUri = null
+                                DownloadFolderGrantRegistry.setSelected(this@ChoiceActivity, null)
+                                coroutineScope.launch { settingsRepository.setDownloadFolderUri(null) }
+                            },
+                            onSubtitleChanged = { language, automatic ->
+                                formatSelection = formatSelection.copy(
+                                    subtitleLanguage = language,
+                                    subtitleAutomatic = automatic,
+                                    embedSubtitles = if (language == null) false else formatSelection.embedSubtitles,
+                                )
+                            },
                             onCancel = { finish() },
                             onDownload = requestDownload,
                         )
@@ -587,13 +479,6 @@ private fun MetadataChip(label: String) {
             color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1)
     }
 }
-
-@Preview(name = "Выбор файла · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f, showSystemUi = true)
-@Preview(name = "Выбор файла · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, showSystemUi = true)
-@Preview(name = "Выбор файла · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
-@Preview(name = "Выбор файла · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, showSystemUi = true)
-@Composable
-internal fun ChoiceSheetPreview() = ChoiceSheetLoadedPreview()
 
 private fun formatLabel(context: Context, format: AvailableFormat, durationSeconds: Int? = null): String {
     val parts = mutableListOf<String>()

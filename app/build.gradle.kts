@@ -82,6 +82,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.5")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("com.google.code.gson:gson:2.14.0")
     implementation("com.google.re2j:re2j:1.8")

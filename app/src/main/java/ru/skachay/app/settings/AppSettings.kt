@@ -105,6 +105,7 @@ data class AppSettings(
     val lastVideoQualityTier: String? = null,
     val lastAudioQualityKind: String? = null,
     val lastQualityWasAudio: Boolean = false,
+    val lastFormatId: String? = null,
     val downloadFolderUri: String? = null,
     val fileNameTemplate: String? = null,
 )

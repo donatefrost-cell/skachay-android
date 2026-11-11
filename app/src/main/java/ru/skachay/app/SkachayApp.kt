@@ -1,7 +1,10 @@
 package ru.skachay.app
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -10,6 +13,7 @@ import androidx.work.WorkManager
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.choice.createThumbnailImageLoader
 import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
 import ru.skachay.app.updates.UpdateWorker
@@ -18,8 +22,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import ru.skachay.app.queue.DownloadQueueDatabase
 
-class SkachayApp : Application() {
+class SkachayApp : Application(), SingletonImageLoader.Factory {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
+
+    override fun newImageLoader(context: Context): ImageLoader = createThumbnailImageLoader(context)
 
     override fun onCreate() {
         super.onCreate()

@@ -40,6 +40,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
                 lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
                 lastQualityWasAudio = preferences[LAST_QUALITY_WAS_AUDIO] ?: false,
+                lastFormatId = preferences[LAST_FORMAT_ID],
                 downloadFolderUri = preferences[DOWNLOAD_FOLDER_URI],
                 fileNameTemplate = preferences[FILE_NAME_TEMPLATE],
             )
@@ -72,11 +73,12 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         store.edit { it[VIDEO_BITRATE_LIMIT] = saved.name }
     }
     suspend fun setRememberQualityChoice(enabled: Boolean) { store.edit { it[REMEMBER_QUALITY_CHOICE] = enabled } }
-    suspend fun setLastQualityChoices(videoTier: String?, audioKind: String?, wasAudio: Boolean? = null) {
+    suspend fun setLastQualityChoices(videoTier: String?, audioKind: String?, wasAudio: Boolean? = null, formatId: String? = null) {
         store.edit { preferences ->
             if (videoTier == null) preferences.remove(LAST_VIDEO_QUALITY_TIER) else preferences[LAST_VIDEO_QUALITY_TIER] = videoTier
             if (audioKind == null) preferences.remove(LAST_AUDIO_QUALITY_KIND) else preferences[LAST_AUDIO_QUALITY_KIND] = audioKind
             if (wasAudio != null) preferences[LAST_QUALITY_WAS_AUDIO] = wasAudio
+            if (formatId == null) preferences.remove(LAST_FORMAT_ID) else preferences[LAST_FORMAT_ID] = formatId.take(80)
         }
     }
     suspend fun setDownloadFolderUri(uri: String?) {
@@ -118,6 +120,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         private val LAST_VIDEO_QUALITY_TIER = stringPreferencesKey("last_video_quality_tier")
         private val LAST_AUDIO_QUALITY_KIND = stringPreferencesKey("last_audio_quality_kind")
         private val LAST_QUALITY_WAS_AUDIO = booleanPreferencesKey("last_quality_was_audio")
+        private val LAST_FORMAT_ID = stringPreferencesKey("last_format_id")
         private val DOWNLOAD_FOLDER_URI = stringPreferencesKey("download_folder_uri")
         private val FILE_NAME_TEMPLATE = stringPreferencesKey("file_name_template")
 
