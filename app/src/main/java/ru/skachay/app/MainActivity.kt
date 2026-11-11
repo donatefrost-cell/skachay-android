@@ -623,15 +623,15 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
             Text("Настройки", style = MaterialTheme.typography.headlineMedium)
         }
-        SettingsSection("Режим") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsCard("Режим") {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Выберите, сколько настроек показывать.", style = MaterialTheme.typography.bodyMedium)
                 SegmentedPicker(
                     listOf(UserMode.SIMPLE to "Просто", UserMode.ADVANCED to "Для опытных"), settings.mode,
                 ) { mode -> scope.launch { repository.selectMode(mode) } }
             }
         }
-        SettingsSection("Качество") {
+        SettingsCard("Качество") {
             Column {
                 SettingsRow(
                     "Качество по умолчанию",
@@ -663,7 +663,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
         }
         if (settings.mode == UserMode.ADVANCED) {
-            SettingsSection("Скачивание") {
+            SettingsCard("Скачивание") {
                 Column {
                     SegmentSetting("При отправке ссылки", "", listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"), settings.shareMode) {
                         scope.launch { repository.setShareMode(it) }
@@ -673,7 +673,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         scope.launch { repository.setParallelDownloads(it) }
                     }
                     SectionDivider()
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Text("Соединений на загрузку · ${settings.connections}", style = MaterialTheme.typography.titleSmall)
                         Slider(
                             value = settings.connections.toFloat(), onValueChange = { value ->
@@ -691,7 +691,7 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         onClick = { scope.launch { repository.setWifiOnly(!settings.wifiOnly) } })
                 }
             }
-            SettingsSection("Файлы") {
+            SettingsCard("Файлы") {
                 Column {
                     SettingsRow(
                         "Папка сохранения",
@@ -715,17 +715,17 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                     SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
                 }
             }
-            SettingsSection("Движок") {
+            SettingsCard("Движок") {
                 EngineUpdateControl(settings.engineChannel, repository)
             }
-            SettingsSection("Память и история") { StorageControls() }
+            SettingsCard("Память и история") { StorageControls() }
         }
-        SettingsSection("Удобство") {
+        SettingsCard("Удобство") {
             SettingsRow("Крупный режим", "Увеличивает текст и упрощает чтение", R.drawable.ic_info,
                 trailing = { Switch(checked = settings.largeMode, onCheckedChange = null) },
                 onClick = { scope.launch { repository.setLargeMode(!settings.largeMode) } })
         }
-        SettingsSection("О приложении") { AboutControls(onDiagnostics) }
+        SettingsCard("О приложении") { AboutControls(onDiagnostics) }
     }
     if (showQualitySheet) {
         ModalBottomSheet(
@@ -915,14 +915,21 @@ private fun SettingsChevron() {
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun SettingsCard(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        ) { Column(content = content) }
+        val shape = RoundedCornerShape(28.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().clip(shape),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = content,
+            )
+        }
     }
 }
 
@@ -935,7 +942,7 @@ private fun SettingsRow(
     onClick: (() -> Unit)? = null,
 ) {
     val clickable = if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)
-    Row(clickable.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(clickable.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
         Column(Modifier.weight(1f).padding(start = 16.dp, end = 12.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
@@ -947,7 +954,7 @@ private fun SettingsRow(
 
 @Composable
 private fun SectionDivider() {
-    HorizontalDivider(Modifier.padding(start = 56.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -965,7 +972,7 @@ private fun <T> SegmentedPicker(options: List<Pair<T, String>>, selected: T, onS
 
 @Composable
 private fun <T> SegmentSetting(title: String, supporting: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         if (supporting.isNotEmpty()) Text(supporting, style = MaterialTheme.typography.bodyMedium)
         SegmentedPicker(options, selected, onSelect)
@@ -979,7 +986,7 @@ private fun AboutControls(onDiagnostics: () -> Unit) {
     Column {
         SettingsRow("Скачай", "Версия $version", R.drawable.ic_info)
         SectionDivider()
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             UpdateCheckButton()
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
         }
@@ -1022,7 +1029,7 @@ private fun EngineUpdateControl(channel: EngineChannel, repository: SettingsRepo
             }
         }
     })
-        message?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium) }
+        message?.let { Text(it, Modifier.fillMaxWidth().padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
@@ -1155,6 +1162,65 @@ internal fun SettingsScreenPreview() {
             onBack = {},
             onDiagnostics = {},
         )
+    }
+}
+
+internal enum class SettingsPreviewSection(val title: String) {
+    MODE("Режим"),
+    QUALITY("Качество"),
+    DOWNLOADS("Скачивание"),
+    FILES("Файлы"),
+    ENGINE("Движок"),
+    STORAGE("Память и история"),
+    CONVENIENCE("Удобство"),
+    ABOUT("О приложении"),
+}
+
+@Composable
+internal fun SettingsCardPreview(section: SettingsPreviewSection) {
+    val context = LocalContext.current
+    val repository = remember(context) { SettingsRepository.forContext(context) }
+    SkachayPreview {
+        Column(
+            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            SettingsCard(section.title) {
+                when (section) {
+                    SettingsPreviewSection.MODE -> {
+                        Text("Выберите, сколько настроек показывать.", style = MaterialTheme.typography.bodyMedium)
+                        SegmentedPicker(
+                            listOf(UserMode.SIMPLE to "Просто", UserMode.ADVANCED to "Для опытных"), UserMode.ADVANCED,
+                        ) {}
+                    }
+                    SettingsPreviewSection.QUALITY -> {
+                        SettingsRow("Качество по умолчанию", "Выбрано: 720p", R.drawable.ic_quality, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow("Своё качество для каждого приложения", "Отдельный предел для YouTube", R.drawable.ic_info,
+                            trailing = { Switch(checked = true, onCheckedChange = null) })
+                    }
+                    SettingsPreviewSection.DOWNLOADS -> {
+                        SegmentSetting("При отправке ссылки", "", listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"), ShareMode.CHOOSE) {}
+                        SectionDivider()
+                        SegmentSetting("Параллельные загрузки", "", (1..4).map { it to it.toString() }, 2) {}
+                        SectionDivider()
+                        SettingsRow("Только по Wi-Fi", "Не расходовать мобильный интернет", R.drawable.ic_wifi,
+                            trailing = { Switch(checked = false, onCheckedChange = null) })
+                    }
+                    SettingsPreviewSection.FILES -> {
+                        SettingsRow("Папка сохранения", "Галерея · папка «Скачай»", R.drawable.ic_folder, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow("Имя файла", "Название публикации", R.drawable.ic_quality, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
+                    }
+                    SettingsPreviewSection.ENGINE -> EngineUpdateControl(EngineChannel.STABLE, repository)
+                    SettingsPreviewSection.STORAGE -> StorageControls(sizeOverride = (42L * 1024 * 1024) to (3L * 1024 * 1024))
+                    SettingsPreviewSection.CONVENIENCE -> SettingsRow("Крупный режим", "Увеличивает текст и упрощает чтение", R.drawable.ic_info,
+                        trailing = { Switch(checked = true, onCheckedChange = null) })
+                    SettingsPreviewSection.ABOUT -> AboutControls {}
+                }
+            }
+        }
     }
 }
 
