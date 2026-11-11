@@ -43,6 +43,16 @@ fun HomePreviewCardScreenshot() = HomePreviewCardPreview()
 fun SettingsScreenshot() = SettingsScreenPreview()
 
 @PreviewTest
+@Preview(name = "Пресеты качества · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
+@Preview(name = "Пресеты качества · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
+@Preview(name = "Пресеты качества · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Preview(name = "Пресеты качества · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f)
+@Preview(name = "Пресеты качества · светлая · 200%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 2f)
+@Preview(name = "Пресеты качества · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f)
+@Composable
+fun QualityPresetSettingsScreenshot() = QualityPresetSettingsPreview()
+
+@PreviewTest
 @Preview(name = "Настройки · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
 @Composable
 fun SettingsLargeModeScreenshot() = SettingsLargeModePreview()

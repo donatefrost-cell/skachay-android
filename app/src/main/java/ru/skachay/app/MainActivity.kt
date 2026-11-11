@@ -1157,6 +1157,29 @@ internal fun SettingsScreenPreview() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun QualityPresetSettingsPreview() {
+    SkachayPreview {
+        ModalBottomSheet(
+            onDismissRequest = {},
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
+                QualityPresetGrid(Quality.P1440) {}
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall)
+                BitrateLimitControl("Предел битрейта", VideoBitrateLimit.K4000) {}
+                TextButton(onClick = {}, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
+            }
+        }
+    }
+}
+
 @Preview(name = "Настройки · крупный режим · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun SettingsLargeModePreview() {
