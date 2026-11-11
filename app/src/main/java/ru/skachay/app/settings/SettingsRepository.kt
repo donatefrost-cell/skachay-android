@@ -34,7 +34,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
                 largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
                 wifiOnly = preferences[WIFI_ONLY] ?: false,
                 youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
-                videoBitrateLimit = enumOrDefault(preferences[VIDEO_BITRATE_LIMIT], VideoBitrateLimit.ANY),
+                videoBitrateLimit = VideoBitrateLimit.fromStoredName(preferences[VIDEO_BITRATE_LIMIT]),
                 platformQualityEnabled = preferences[PLATFORM_QUALITY_ENABLED] ?: false,
                 rememberQualityChoice = preferences[REMEMBER_QUALITY_CHOICE] ?: false,
                 lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
@@ -67,7 +67,10 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
     suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
     suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
     suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
-    suspend fun setVideoBitrateLimit(limit: VideoBitrateLimit) { store.edit { it[VIDEO_BITRATE_LIMIT] = limit.name } }
+    suspend fun setVideoBitrateLimit(limit: VideoBitrateLimit) {
+        val saved = VideoBitrateLimit.fromStoredName(limit.name)
+        store.edit { it[VIDEO_BITRATE_LIMIT] = saved.name }
+    }
     suspend fun setRememberQualityChoice(enabled: Boolean) { store.edit { it[REMEMBER_QUALITY_CHOICE] = enabled } }
     suspend fun setLastQualityChoices(videoTier: String?, audioKind: String?, wasAudio: Boolean? = null) {
         store.edit { preferences ->

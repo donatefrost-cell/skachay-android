@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -89,6 +91,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -117,6 +123,7 @@ import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.EngineChannel
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.QualityPresetPresentation
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
@@ -730,17 +737,12 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 QualityPresetGrid(settings.quality) { preset -> scope.launch { repository.setQuality(preset) } }
                 if (settings.mode == UserMode.ADVANCED) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Text("Предел битрейта", style = MaterialTheme.typography.titleMedium)
                     Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val bitrateLimits = VideoBitrateLimit.entries
-                    val bitrateIndex = bitrateLimits.indexOf(settings.videoBitrateLimit).coerceAtLeast(0)
-                    Slider(
-                        value = bitrateIndex.toFloat(),
-                        onValueChange = { value -> scope.launch { repository.setVideoBitrateLimit(bitrateLimits[value.roundToInt()]) } },
-                        valueRange = 0f..bitrateLimits.lastIndex.toFloat(),
-                        steps = bitrateLimits.size - 2,
+                    BitrateLimitControl(
+                        title = "Предел битрейта",
+                        selected = settings.videoBitrateLimit,
+                        onSelect = { limit -> scope.launch { repository.setVideoBitrateLimit(limit) } },
                     )
-                    Text(bitrateLimits[bitrateIndex].label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                 }
                 androidx.compose.material3.TextButton(onClick = { showQualitySheet = false }, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
             }
@@ -814,39 +816,91 @@ private fun PlatformQualityControl(title: String, selected: Quality, onSelect: (
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun QualityPresetGrid(selected: Quality, onSelect: (Quality) -> Unit) {
-    val rows = listOf(
-        listOf(Quality.AUTO, Quality.P144, Quality.P240, Quality.P360, Quality.P480),
-        listOf(Quality.P720, Quality.P1080, Quality.P1440, Quality.P2160, Quality.MAX),
-    )
     val effectiveSelection = if (selected == Quality.BEST) Quality.P1080 else selected
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEach { quality ->
-                    FilterChip(
-                        selected = effectiveSelection == quality,
-                        onClick = { onSelect(quality) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(qualityShortName(quality), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                    )
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(QualityPresetPresentation.summary(selected), style = MaterialTheme.typography.titleSmall)
+        Text(QualityPresetPresentation.hint(selected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            QualityPresetPresentation.options.forEach { option ->
+                val isSelected = effectiveSelection == option.quality
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelect(option.quality) },
+                    modifier = Modifier.defaultMinSize(minWidth = 72.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "${option.label}, ${if (isSelected) "выбрано" else "не выбрано"}"
+                            stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                        },
+                    label = { Text(option.label, maxLines = 1, softWrap = false) },
+                )
             }
         }
     }
 }
 
-private fun qualityShortName(quality: Quality): String = when (quality) {
-    Quality.AUTO -> "Авто · 720p"
-    Quality.P144 -> "144p"
-    Quality.P240 -> "240p"
-    Quality.P360 -> "360p"
-    Quality.P480 -> "480p"
-    Quality.P720 -> "720p"
-    Quality.P1080, Quality.BEST -> "1080p"
-    Quality.P1440 -> "1440p"
-    Quality.P2160 -> "4K"
-    Quality.MAX -> "Макс"
+private fun qualityShortName(quality: Quality): String = QualityPresetPresentation.label(quality)
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun BitrateLimitControl(
+    title: String,
+    selected: VideoBitrateLimit,
+    onSelect: (VideoBitrateLimit) -> Unit,
+) {
+    val stops = VideoBitrateLimit.stops
+    val selectedIndex = stops.indexOf(selected).coerceAtLeast(0)
+    val fontScale = LocalDensity.current.fontScale
+    val shownIndices = if (fontScale >= 1.5f) {
+        stops.indices.filter { it % 2 == 0 || it == selectedIndex }
+    } else {
+        stops.indices.toList()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(selected.label, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        Slider(
+            value = selectedIndex.toFloat(),
+            onValueChange = { value -> onSelect(stops[value.roundToInt().coerceIn(stops.indices)]) },
+            valueRange = 0f..stops.lastIndex.toFloat(),
+            steps = stops.size - 2,
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = selected.label
+            },
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            shownIndices.forEach { index ->
+                val stop = stops[index]
+                val isSelected = index == selectedIndex
+                TextButton(
+                    onClick = { onSelect(stop) },
+                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "${stop.label}, ${if (isSelected) "выбрано" else "выбрать"}"
+                            stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                        },
+                ) {
+                    Text(
+                        stop.stopCaption,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable

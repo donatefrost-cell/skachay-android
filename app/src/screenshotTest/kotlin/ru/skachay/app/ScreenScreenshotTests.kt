@@ -37,6 +37,8 @@ fun HomePreviewCardScreenshot() = HomePreviewCardPreview()
 @Preview(name = "Настройки · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
 @Preview(name = "Настройки · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
 @Preview(name = "Настройки · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f)
+@Preview(name = "Настройки · светлая · 200%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 2f)
+@Preview(name = "Настройки · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f)
 @Composable
 fun SettingsScreenshot() = SettingsScreenPreview()
 
