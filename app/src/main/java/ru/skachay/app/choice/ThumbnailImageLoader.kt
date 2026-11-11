@@ -17,7 +17,6 @@ internal fun createThumbnailImageLoader(context: Context): ImageLoader {
         .components {
             add(OkHttpNetworkFetcherFactory(callFactory = { client }))
         }
-        .crossfade(true)
         .build()
 }
 

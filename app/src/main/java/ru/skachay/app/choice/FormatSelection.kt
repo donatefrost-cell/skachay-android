@@ -4,6 +4,9 @@ import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.VideoBitrateLimit
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 
 /** Complete editable state for the downloader's video/audio format selection. */
 internal data class FormatSelection(
@@ -120,4 +123,18 @@ private object YouTubeSizeEstimator {
             val bitrate = if (format.hasVideo) format.videoBitrate else format.audioBitrate ?: return null
             bitrate?.toLong()?.times(125L)?.times(seconds.toLong())
         }
+}
+
+internal fun formatMediaSizeRu(bytes: Long?): String {
+    if (bytes == null || bytes < 0) return "Размер неизвестен"
+    val symbols = DecimalFormatSymbols.getInstance(Locale.forLanguageTag("ru"))
+    val value: Double
+    val unit: String
+    when {
+        bytes >= 1_000_000L -> { value = bytes / 1_000_000.0; unit = "МБ" }
+        bytes >= 1_000L -> { value = bytes / 1_000.0; unit = "КБ" }
+        else -> { value = bytes.toDouble(); unit = "Б" }
+    }
+    val pattern = if (value < 10.0) "0.#" else "#,##0"
+    return "≈${DecimalFormat(pattern, symbols).format(value)} $unit"
 }

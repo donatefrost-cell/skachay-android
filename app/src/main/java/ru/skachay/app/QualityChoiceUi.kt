@@ -65,6 +65,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import java.util.Locale
 import ru.skachay.app.choice.AvailableFormat
 import ru.skachay.app.choice.FormatSelection
@@ -112,6 +113,10 @@ internal fun QualityChoiceSheetContent(
     val configuration = LocalConfiguration.current
     val maximumHeight = (configuration.screenHeightDp * 0.92f).dp
     var advancedExpanded by remember(preview, initiallyAdvancedExpanded) { mutableStateOf(initiallyAdvancedExpanded) }
+    val visibleFormats = remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
+    val videoGroups = remember(visibleFormats) {
+        visibleFormats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
+    }
     Column(
         Modifier.fillMaxWidth().heightIn(max = maximumHeight).padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -231,10 +236,6 @@ internal fun QualityChoiceSheetContent(
                 if (advancedExpanded) {
                     item {
                         AdvancedFilters(preview, selection, onSelectionChanged)
-                    }
-                    val visibleFormats = remember(preview, selection) { FormatSelectionResolver.candidates(preview.formats, selection) }
-                    val videoGroups = remember(visibleFormats) {
-                        visibleFormats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
                     }
                     videoGroups.forEach { (height, formats) ->
                         item(key = "format-resolution-$height") {

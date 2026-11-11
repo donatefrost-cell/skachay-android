@@ -89,6 +89,12 @@ class FormatSelectionTest {
         assertTrue(selected.all { it.hasVideo && !it.hasAudio })
     }
 
+    @Test
+    fun mediaSizeUsesOneRussianDecimalUnderTenMegabytes() {
+        assertEquals("≈1,6 МБ", formatMediaSizeRu(1_600_000L))
+        assertEquals("≈19 МБ", formatMediaSizeRu(19_000_000L))
+    }
+
     private fun video(
         id: String,
         extension: String,

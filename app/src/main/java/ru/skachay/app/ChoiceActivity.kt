@@ -295,7 +295,10 @@ class ChoiceActivity : ComponentActivity() {
                             selectedFormat = selected,
                             rememberChoice = rememberChoice,
                             estimatedSizeBytes = estimatedSize,
-                            downloadEnabled = state !is PreviewState.Loading && !invalidFileName && (!formatSelection.audio || selected?.hasAudio == true),
+                            downloadEnabled = state !is PreviewState.Loading && !invalidFileName &&
+                                (state !is PreviewState.Ready || selected != null) &&
+                                (!formatSelection.audio || selected?.hasAudio == true) &&
+                                (!formatSelection.videoOnly || selected?.hasVideo == true),
                             fileName = fileName,
                             fileNameInvalid = invalidFileName,
                             saveFolderLabel = downloadFolderUri?.let(::documentFolderLabel) ?: DEFAULT_SAVE_FOLDER_LABEL,
