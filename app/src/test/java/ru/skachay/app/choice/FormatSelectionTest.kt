@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.skachay.app.audioSourceSubtitle
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.settings.Quality
@@ -123,6 +124,18 @@ class FormatSelectionTest {
                 preview,
                 FormatSelection(audio = true, audioExport = AudioExport.MP3, audioBitrate = AudioBitrate.K128),
             ),
+        )
+    }
+
+    @Test
+    fun audioSourceSubtitleNamesTheActualContainerAndCodec() {
+        assertEquals(
+            "m4a · исходное качество",
+            audioSourceSubtitle(audio("m4a", "m4a", "mp4a.40.2", 192)),
+        )
+        assertEquals(
+            "OPUS · WEBM · исходный формат",
+            audioSourceSubtitle(audio("opus", "webm", "opus", 160)),
         )
     }
 

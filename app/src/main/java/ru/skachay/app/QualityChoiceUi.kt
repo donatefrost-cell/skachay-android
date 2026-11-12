@@ -207,7 +207,7 @@ internal fun QualityChoiceSheetContent(
                                     if (compact) {
                                         "mp3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
                                     } else {
-                                        "m4a · исходное качество"
+                                        audioSourceSubtitle(selectedFormat)
                                     },
                                 size = formatMediaSizeRu(size),
                                 selected = selection.audioExport == export,
@@ -863,6 +863,19 @@ private fun AudioQualityCard(
             Text(size, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+internal fun audioSourceSubtitle(format: AvailableFormat?): String {
+    if (format == null) return "Исходное аудио"
+    if (
+        format.extension.equals("m4a", ignoreCase = true) &&
+        format.audioCodec?.startsWith("mp4a", ignoreCase = true) == true
+    ) {
+        return "m4a · исходное качество"
+    }
+    val codec = format.audioCodec?.substringBefore('.')?.uppercase(Locale.ROOT)
+    val container = format.extension.uppercase(Locale.ROOT)
+    return listOfNotNull(codec, container).joinToString(" · ") + " · исходный формат"
 }
 
 @Composable
