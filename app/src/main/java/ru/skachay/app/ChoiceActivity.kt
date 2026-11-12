@@ -463,10 +463,16 @@ private fun PreviewCard(cached: CachedPreview, source: String) {
 private fun PreviewCardContent(preview: VideoPreview, source: String, thumbnail: Bitmap?) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))) {
-            thumbnail?.asImageBitmap()?.let { image ->
-                Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (thumbnail != null) {
+                Image(
+                    thumbnail.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
             }
-            else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
         }
         Text(preview.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

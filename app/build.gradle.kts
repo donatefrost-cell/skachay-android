@@ -18,7 +18,11 @@ dependencyLocking {
     lockAllConfigurations()
 }
 
-val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.0").get().removePrefix("v")
+val releaseVersion = providers
+    .gradleProperty("releaseVersion")
+    .orElse("0.1.0")
+    .get()
+    .removePrefix("v")
 require(Regex("\\d{1,4}\\.\\d{1,3}(?:\\.\\d{1,3})?").matches(releaseVersion)) {
     "releaseVersion должен иметь вид 1.0 или 1.0.1"
 }
@@ -26,8 +30,13 @@ val releaseParts = releaseVersion.split('.').map(String::toInt)
 val releaseCode = releaseParts[0] * 1_000_000 + releaseParts[1] * 1_000 + releaseParts.getOrElse(2) { 0 }
 require(releaseParts[0] <= 2099 && releaseCode in 1..2_100_000_000) { "Недопустимый номер версии" }
 
-val signingValues = listOf("SKACHAY_KEYSTORE_PATH", "SKACHAY_KEYSTORE_PASSWORD", "SKACHAY_KEY_ALIAS", "SKACHAY_KEY_PASSWORD")
-    .map { providers.environmentVariable(it).orNull }
+val signingNames = listOf(
+    "SKACHAY_KEYSTORE_PATH",
+    "SKACHAY_KEYSTORE_PASSWORD",
+    "SKACHAY_KEY_ALIAS",
+    "SKACHAY_KEY_PASSWORD",
+)
+val signingValues = signingNames.map { providers.environmentVariable(it).orNull }
 require(signingValues.all { it.isNullOrBlank() } || signingValues.none { it.isNullOrBlank() }) {
     "Для подписывания нужны путь к ключу, оба пароля и псевдоним ключа"
 }
