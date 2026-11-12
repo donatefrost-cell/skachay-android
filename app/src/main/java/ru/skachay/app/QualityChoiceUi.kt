@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,6 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +56,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -121,6 +125,8 @@ internal fun QualityChoiceSheetContent(
     onSubtitleChanged: (String?, Boolean) -> Unit,
     onDownload: () -> Unit,
     initiallyAdvancedExpanded: Boolean = false,
+    initiallyScrollToFormats: Boolean = false,
+    initiallyShowAllFormats: Boolean = false,
     onCancel: () -> Unit,
 ) {
     val maximumHeight =
@@ -129,9 +135,15 @@ internal fun QualityChoiceSheetContent(
                 .toDp() * 0.92f
         }
     var advancedExpanded by remember(preview, initiallyAdvancedExpanded) { mutableStateOf(initiallyAdvancedExpanded) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initiallyScrollToFormats, advancedExpanded) {
+        if (initiallyScrollToFormats && advancedExpanded) listState.scrollToItem(5)
+    }
     val visibleFormats =
         remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
-    var exactFormatFilter by remember(preview) { mutableStateOf(AdvancedFormatFilter.COMPATIBLE) }
+    var exactFormatFilter by remember(preview, initiallyShowAllFormats) {
+        mutableStateOf(if (initiallyShowAllFormats) AdvancedFormatFilter.ALL else AdvancedFormatFilter.COMPATIBLE)
+    }
     val videoGroups =
         remember(visibleFormats, exactFormatFilter) {
             filterAdvancedFormats(visibleFormats.filter { it.hasVideo }, exactFormatFilter)
@@ -152,7 +164,8 @@ internal fun QualityChoiceSheetContent(
         }
 
         LazyColumn(
-            Modifier.weight(1f, fill = false).fillMaxWidth(),
+            state = listState,
+            modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -204,7 +217,7 @@ internal fun QualityChoiceSheetContent(
             } else {
                 item {
                     Text("Качество", style = MaterialTheme.typography.titleMedium)
-                    val selectedQuality = selection.resolution?.let(::qualityForResolution) ?: selection.qualityPreset
+                    val selectedQuality = QualityPresetPresentation.normalized(selection.qualityPreset)
                     Text(QualityPresetPresentation.summary(selectedQuality), style = MaterialTheme.typography.titleSmall)
                     Text(
                         QualityPresetPresentation.hint(selectedQuality),
@@ -517,26 +530,13 @@ private fun updateFilters(
     )
 }
 
-private data class VideoBitrateOption(
+internal data class VideoBitrateOption(
     val caption: String,
     val maxKbps: Int?,
     val preset: VideoBitrateLimit?,
 )
 
-private fun qualityForResolution(height: Int): Quality =
-    when {
-        height > 2160 -> Quality.MAX
-        height >= 2160 -> Quality.P2160
-        height >= 1440 -> Quality.P1440
-        height >= 1080 -> Quality.P1080
-        height >= 720 -> Quality.P720
-        height >= 480 -> Quality.P480
-        height >= 360 -> Quality.P360
-        height >= 240 -> Quality.P240
-        else -> Quality.P144
-    }
-
-private fun videoBitrateOptions(
+internal fun videoBitrateOptions(
     preview: VideoPreview?,
     selection: FormatSelection,
 ): List<VideoBitrateOption> {
@@ -546,12 +546,14 @@ private fun videoBitrateOptions(
                 ?.formats
                 .orEmpty()
                 .asSequence()
-                .filter { it.hasVideo && (selection.resolution == null || it.height == selection.resolution) }
-                .mapNotNull { it.videoBitrate?.takeIf { bitrate -> bitrate > 0 } }
+                .filter {
+                    val maximumHeight = selection.resolution ?: selection.qualityPreset.maximumHeight
+                    it.hasVideo && (maximumHeight == null || (it.height ?: Int.MAX_VALUE) <= maximumHeight)
+                }.mapNotNull { it.videoBitrate?.takeIf { bitrate -> bitrate > 0 } }
                 .forEach(::add)
             selection.customBitrateKbps?.let(::add)
         }.distinct().sorted()
-    val useActualRates = actualRates.size >= 2 && (selection.bitrateStop == VideoBitrateLimit.ANY || selection.customBitrateKbps != null)
+    val useActualRates = selection.customBitrateKbps != null || (actualRates.size >= 2 && selection.bitrateStop == VideoBitrateLimit.ANY)
     if (useActualRates) {
         val representativeRates =
             if (actualRates.size <= 4) {
@@ -564,7 +566,9 @@ private fun videoBitrateOptions(
                     actualRates.last(),
                 ).distinct()
             }
-        return representativeRates
+        return (representativeRates + listOfNotNull(selection.customBitrateKbps))
+            .distinct()
+            .sorted()
             .map { bitrate -> VideoBitrateOption(formatBitrateNumber(bitrate), bitrate, null) } +
             VideoBitrateOption("Макс", null, VideoBitrateLimit.ANY)
     }
@@ -1069,12 +1073,8 @@ private fun AdvancedFormatRow(
         format.sizeBytes ?: preview.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
             bitrate?.toLong()?.times(125L)?.times(seconds.toLong())
         }
-    val technical =
-        buildList {
-            format.fps?.let { add("$it к/с") }
-            add(codecFamily(format))
-            add(format.extension.uppercase(Locale.ROOT))
-        }
+    val compatibilityHint = if (compatible) "Работает везде" else "Может не воспроизводиться в галерее"
+    val sizeLabel = if (estimatedSize == null) "—" else formatAdvancedSizeRu(estimatedSize)
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
@@ -1089,31 +1089,63 @@ private fun AdvancedFormatRow(
                 containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
             ),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .semantics(mergeDescendants = true) {
+                    stateDescription = if (selected) "Выбрано. $compatibilityHint" else compatibilityHint
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             RadioButton(selected = selected, onClick = null)
             Column(Modifier.weight(1f).padding(start = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    technical.joinToString(" · "),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(formatAdvancedBitrateRu(bitrate), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                Text(
-                    if (compatible) "Работает везде" else "Может не воспроизводиться в галерее",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    FormatMetadataChip(format.fps?.let { "$it к/с" } ?: "— к/с")
+                    FormatMetadataChip(codecFamily(format))
+                    FormatMetadataChip(format.extension.uppercase(Locale.ROOT))
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (bitrate == null || bitrate <= 0) "—" else formatAdvancedBitrateRu(bitrate),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        painter = painterResource(if (compatible) R.drawable.ic_format_compatible else R.drawable.ic_format_warning),
+                        contentDescription = compatibilityHint,
+                        modifier = Modifier.padding(start = 4.dp).size(18.dp),
+                        tint = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text(
+                        sizeLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
             }
-            Text(
-                formatAdvancedSizeRu(estimatedSize),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 6.dp),
-            )
         }
+    }
+}
+
+@Composable
+private fun FormatMetadataChip(label: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
@@ -1210,7 +1242,7 @@ private fun FileNameField(
     )
 }
 
-internal enum class ChoicePreviewVariant { LOADED, LOADING, LONG_TITLE, AUDIO, ADVANCED }
+internal enum class ChoicePreviewVariant { LOADED, LOADING, LONG_TITLE, AUDIO, ADVANCED, ADVANCED_ALL }
 
 @Composable
 internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVariant.LOADED) {
@@ -1245,9 +1277,17 @@ internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVar
             )
         }
     val loading = variant == ChoicePreviewVariant.LOADING
+    val advanced = variant == ChoicePreviewVariant.ADVANCED || variant == ChoicePreviewVariant.ADVANCED_ALL
     val selection =
         remember(variant) {
-            FormatSelection(qualityPreset = Quality.P720, audio = variant == ChoicePreviewVariant.AUDIO, audioExport = AudioExport.SOURCE)
+            val quality = if (advanced) Quality.P720 else Quality.AUTO
+            val resolution = if (advanced) null else quality.maximumHeight
+            FormatSelection(
+                resolution = resolution,
+                qualityPreset = quality,
+                audio = variant == ChoicePreviewVariant.AUDIO,
+                audioExport = AudioExport.SOURCE,
+            )
         }
     val selected = remember(selection) { FormatSelectionResolver.resolve(sample.formats, selection) }
     SkachayPreview {
@@ -1293,7 +1333,9 @@ internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVar
                             onResetSaveFolder = {},
                             onSubtitleChanged = { _, _ -> },
                             onDownload = {},
-                            initiallyAdvancedExpanded = variant == ChoicePreviewVariant.ADVANCED,
+                            initiallyAdvancedExpanded = advanced,
+                            initiallyScrollToFormats = advanced,
+                            initiallyShowAllFormats = variant == ChoicePreviewVariant.ADVANCED_ALL,
                             onCancel = {},
                         )
                     }

@@ -351,6 +351,16 @@ fun ChoiceAudioScreenshot() = ChoiceSheetPreview(ChoicePreviewVariant.AUDIO)
 fun AdvancedFormatsScreenshot() = ChoiceSheetPreview(ChoicePreviewVariant.ADVANCED)
 
 @PreviewTest
+@Preview(name = "Точные форматы · все · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
+@Preview(name = "Точные форматы · все · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
+@Preview(name = "Точные форматы · все · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)
+@Preview(name = "Точные форматы · все · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f)
+@Preview(name = "Точные форматы · все · светлая · 200%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 2f)
+@Preview(name = "Точные форматы · все · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f)
+@Composable
+fun AdvancedFormatsAllScreenshot() = ChoiceSheetPreview(ChoicePreviewVariant.ADVANCED_ALL)
+
+@PreviewTest
 @Preview(name = "Диагностика · светлая · 100%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1f)
 @Preview(name = "Диагностика · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f)
 @Preview(name = "Диагностика · светлая · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f)

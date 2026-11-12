@@ -105,7 +105,7 @@ internal object QualityPresetPresentation {
             else -> "Выбирается видео не выше выбранного разрешения."
         }
 
-    private fun normalized(quality: Quality): Quality = if (quality == Quality.BEST) Quality.P1080 else quality
+    fun normalized(quality: Quality): Quality = if (quality == Quality.BEST) Quality.P1080 else quality
 }
 
 data class AppSettings(

@@ -52,6 +52,7 @@ internal data class FormatSelection(
         val preset =
             when {
                 height == null -> qualityPreset
+                height > 2160 -> Quality.MAX
                 height >= 2160 -> Quality.P2160
                 height >= 1440 -> Quality.P1440
                 height >= 1080 -> Quality.P1080
@@ -90,8 +91,9 @@ internal object FormatSelectionResolver {
                 } else {
                     format.hasVideo && (!selection.videoOnly || !format.hasAudio)
                 }
-            }.filter { selection.resolution == null || it.height == selection.resolution }
-            .filter { format ->
+            }.filter { format ->
+                selection.audio || selection.resolution == null || (format.height ?: Int.MAX_VALUE) <= selection.resolution
+            }.filter { format ->
                 (selection.customBitrateKbps ?: selection.bitrateStop.maxKbps)?.let { limit ->
                     val bitrate = if (selection.audio) format.audioBitrate else format.videoBitrate
                     bitrate != null && bitrate <= limit
@@ -123,10 +125,10 @@ internal object FormatSelectionResolver {
         }
 
         val maximumHeight = selection.resolution ?: selection.qualityPreset.maximumHeight
-        val underPreset = if (maximumHeight == null) candidates else candidates.filter { (it.height ?: Int.MAX_VALUE) <= maximumHeight }
-        val pool = underPreset.ifEmpty { candidates.minByOrNull { it.height ?: Int.MAX_VALUE }?.let(::listOf).orEmpty() }
+        val pool = if (maximumHeight == null) candidates else candidates.filter { (it.height ?: Int.MAX_VALUE) <= maximumHeight }
+        if (pool.isEmpty()) return null
         return pool.maxWithOrNull(
-            compareBy<AvailableFormat> { if (selection.resolution == null) it.height ?: 0 else 0 }
+            compareBy<AvailableFormat> { it.height ?: 0 }
                 .thenBy { if (isGalleryCompatible(it)) 1 else 0 }
                 .thenBy { -kotlin.math.abs((it.fps ?: 30) - 30) }
                 .thenBy { it.videoBitrate ?: 0 }

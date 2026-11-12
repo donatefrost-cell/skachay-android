@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.VideoBitrateLimit
+import ru.skachay.app.videoBitrateOptions
 
 class FormatSelectionTest {
     private val formats =
@@ -33,7 +34,7 @@ class FormatSelectionTest {
             )
 
         assertEquals(
-            listOf("h264-720-muxed", "h264-720-30"),
+            listOf("h264-360", "h264-720-muxed", "h264-720-30"),
             FormatSelectionResolver.candidates(formats, selection).map { it.id },
         )
     }
@@ -82,7 +83,7 @@ class FormatSelectionTest {
         val selection = FormatSelection(resolution = 720, customBitrateKbps = 2_500)
 
         assertEquals(
-            listOf("h264-720-muxed", "h264-720-30", "h264-720-webm"),
+            listOf("h264-360", "h264-720-muxed", "h264-720-30", "h264-720-webm"),
             FormatSelectionResolver.candidates(formats, selection).map { it.id },
         )
     }
@@ -96,6 +97,13 @@ class FormatSelectionTest {
     }
 
     @Test
+    fun resolutionCapDoesNotFilterAudioFormats() {
+        val selection = FormatSelection(resolution = 720, qualityPreset = Quality.P720, audio = true)
+
+        assertEquals(listOf("m4a", "opus"), FormatSelectionResolver.candidates(formats, selection).map { it.id })
+    }
+
+    @Test
     fun qualityPresetDoesNotResolveAboveItsHeightLimit() {
         val selected =
             FormatSelectionResolver.resolve(
@@ -105,6 +113,40 @@ class FormatSelectionTest {
 
         assertTrue((selected?.height ?: Int.MAX_VALUE) <= 1080)
         assertEquals("h264-1080", selected?.id)
+    }
+
+    @Test
+    fun maximumResolutionKeepsLowerFormatsWhenExactHeightIsUnavailable() {
+        val selection = FormatSelection(resolution = 480, qualityPreset = Quality.P480)
+
+        assertEquals(listOf("h264-360"), FormatSelectionResolver.candidates(formats, selection).map { it.id })
+        assertEquals("h264-360", FormatSelectionResolver.resolve(formats, selection)?.id)
+    }
+
+    @Test
+    fun qualityPresetDoesNotFallBackAboveItsMaximumWhenNoLowerFormatExists() {
+        val onlyHighResolution = listOf(video("h264-1080-only", "mp4", "avc1.640028", 1080, 30, 4_000))
+
+        assertNull(FormatSelectionResolver.resolve(onlyHighResolution, FormatSelection(qualityPreset = Quality.P480)))
+    }
+
+    @Test
+    fun sliderAlwaysOffersThePinnedBitrateEvenWhenItIsNotAQuartile() {
+        val preview =
+            VideoPreview(
+                title = "Video",
+                author = null,
+                durationSeconds = 60,
+                thumbnailUrl = null,
+                formats =
+                    (500..5_000 step 500).map { bitrate ->
+                        video("h264-$bitrate", "mp4", "avc1.4d401f", 720, 30, bitrate)
+                    },
+            )
+
+        val stops = videoBitrateOptions(preview, FormatSelection(resolution = 720, customBitrateKbps = 4_500))
+
+        assertTrue(stops.any { it.maxKbps == 4_500 && it.preset == null })
     }
 
     @Test
