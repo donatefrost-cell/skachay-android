@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -191,23 +192,28 @@ internal fun QualityChoiceSheetContent(
 
             if (selection.audio) {
                 item {
-                    Text("Формат звука", style = MaterialTheme.typography.titleMedium)
-                    listOf(AudioExport.SOURCE, AudioExport.MP3).forEach { export ->
-                        val compact = export == AudioExport.MP3
-                        val option = selection.copy(audioExport = export)
-                        val size = preview?.let { FormatSelectionResolver.estimateBytes(it, option) }
-                        AudioQualityCard(
-                            title = if (compact) "Компактное" else "Лучшее",
-                            subtitle =
-                                if (compact) {
-                                    "mp3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
-                                } else {
-                                    "m4a · исходное качество"
-                                },
-                            size = formatMediaSizeRu(size),
-                            selected = selection.audioExport == export,
-                            onClick = { onSelectionChanged(option) },
-                        )
+                    Column(
+                        Modifier.fillMaxWidth().selectableGroup(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Формат звука", style = MaterialTheme.typography.titleMedium)
+                        listOf(AudioExport.SOURCE, AudioExport.MP3).forEach { export ->
+                            val compact = export == AudioExport.MP3
+                            val option = selection.copy(audioExport = export)
+                            val size = preview?.let { FormatSelectionResolver.estimateBytes(it, option) }
+                            AudioQualityCard(
+                                title = if (compact) "Компактное" else "Лучшее",
+                                subtitle =
+                                    if (compact) {
+                                        "mp3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
+                                    } else {
+                                        "m4a · исходное качество"
+                                    },
+                                size = formatMediaSizeRu(size),
+                                selected = selection.audioExport == export,
+                                onClick = { onSelectionChanged(option) },
+                            )
+                        }
                     }
                 }
             } else {
