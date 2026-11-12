@@ -25,6 +25,7 @@ import ru.skachay.app.download.MediaType
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.ResolvedMedia
+import ru.skachay.app.download.ResolvedMediaNetworkPolicy
 import ru.skachay.app.download.SavedFileName
 import ru.skachay.app.download.FileNameTemplate
 import ru.skachay.app.download.SourceType

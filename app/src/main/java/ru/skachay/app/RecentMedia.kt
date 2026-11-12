@@ -128,10 +128,11 @@ internal fun RecentMedia(refresh: Int, snackbar: SnackbarHostState) {
                     value = withContext(Dispatchers.IO) { loadThumbnail(context, file.uri) }
                 }
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(56.dp)) {
-                    thumbnail?.asImageBitmap()?.let { image ->
-                        Image(image, contentDescription = null, contentScale = ContentScale.Crop)
+                    if (thumbnail != null) {
+                        Image(thumbnail.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop)
+                    } else {
+                        Box(contentAlignment = Alignment.Center) { Text("▶") }
                     }
-                    else Box(contentAlignment = Alignment.Center) { Text("▶") }
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(file.title, maxLines = 1, style = MaterialTheme.typography.titleSmall)

@@ -85,6 +85,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     sourceSets["main"].assets.srcDir(rootProject.layout.projectDirectory.dir("recipe-defaults"))
