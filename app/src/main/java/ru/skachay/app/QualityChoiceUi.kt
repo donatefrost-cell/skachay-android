@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -118,7 +119,7 @@ internal fun QualityChoiceSheetContent(
         visibleFormats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
     }
     Column(
-        Modifier.fillMaxWidth().heightIn(max = maximumHeight).padding(horizontal = 20.dp),
+        Modifier.fillMaxWidth().heightIn(max = maximumHeight).fillMaxHeight().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when {
