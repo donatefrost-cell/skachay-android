@@ -25,7 +25,7 @@ class YouTubeFormatSelectorTest {
                     format("audio-m4a", "m4a", null, "mp4a.40.2", null, 128, "https://cdn.example/m4a"),
                 ),
             )
-        val selected = YouTubeFormatSelector.automatic(preview, Quality.AUTO)!!
+        val selected = requireNotNull(YouTubeFormatSelector.automatic(preview, Quality.AUTO))
         assertEquals("720-avc1", selected.video?.id)
         assertEquals("audio-m4a", selected.audio?.id)
     }
@@ -74,7 +74,7 @@ class YouTubeFormatSelectorTest {
                 video = AvailableFormat("v", "mp4", "avc1", null, 1080, null, null, null, videoBitrate = 10_000),
                 audio = AvailableFormat("a", "m4a", null, "mp4a", null, null, 128, null),
             )
-        val bytes = YouTubeFormatSelector.estimatedBytes(streams, 600)!!
+        val bytes = requireNotNull(YouTubeFormatSelector.estimatedBytes(streams, 600))
         org.junit.Assert.assertTrue(bytes > 500L * 1024 * 1024)
     }
 

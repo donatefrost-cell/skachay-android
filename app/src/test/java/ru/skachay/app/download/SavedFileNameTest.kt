@@ -32,7 +32,7 @@ class SavedFileNameTest {
     fun numbersSeveralItemsAndLimitsUtf8LengthWithoutBreakingEmoji() {
         assertEquals("Семья (1).jpg", SavedFileName.displayName("Семья.jpg", "jpg", 1))
         assertEquals("Семья (2).mp4", SavedFileName.displayName("Семья", "mp4", 2))
-        val name = SavedFileName.displayName("😀".repeat(100), "jpg")!!
+        val name = requireNotNull(SavedFileName.displayName("😀".repeat(100), "jpg"))
         assertTrue(name.toByteArray(Charsets.UTF_8).size <= 164)
         assertEquals("😀".repeat(40) + ".jpg", name)
     }

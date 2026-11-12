@@ -81,7 +81,7 @@ class DownloadQueueDatabaseTest {
 
         assertEquals("https://youtu.be/abc123", restored.getStringExtra(DownloadService.EXTRA_URL))
         assertEquals("P720", restored.getStringExtra(DownloadService.EXTRA_QUALITY))
-        assertTrue(restored.getIntArrayExtra(DownloadService.EXTRA_SELECTED_ITEMS)!!.contentEquals(intArrayOf(0, 2)))
+        assertTrue(requireNotNull(restored.getIntArrayExtra(DownloadService.EXTRA_SELECTED_ITEMS)).contentEquals(intArrayOf(0, 2)))
         assertTrue(restored.getBooleanExtra(DownloadService.EXTRA_EMBED_SUBTITLES, false))
         assertEquals(arrayListOf("first", "second"), restored.getStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE))
         assertEquals(55, restored.getIntExtra(DownloadService.EXTRA_NOTIFICATION_ID, 0))

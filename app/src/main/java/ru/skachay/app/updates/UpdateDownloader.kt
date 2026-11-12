@@ -17,6 +17,14 @@ internal class InvalidUpdateException : IOException("Update package or signature
 
 internal class UpdateDownloader(
     private val context: Context,
+    private val downloadAsset: (String, File) -> Unit = { url, target ->
+        val client =
+            UrlNetworkPolicy.publicHttpsClient(
+                callTimeoutSeconds = 60 * 60,
+                allowedRedirectHostSuffixes = setOf("github.com", "githubusercontent.com"),
+            )
+        DirectDownloader(client).download(url, target, connections = 4)
+    },
 ) {
     fun download(release: ReleaseInfo): Uri {
         val directory = File(context.cacheDir, "updates")
@@ -24,12 +32,7 @@ internal class UpdateDownloader(
         val temporary = File(directory, "download.apk")
         val result = File(directory, "update.apk")
         try {
-            val client =
-                UrlNetworkPolicy.publicHttpsClient(
-                    callTimeoutSeconds = 60 * 60,
-                    allowedRedirectHostSuffixes = setOf("github.com", "githubusercontent.com"),
-                )
-            DirectDownloader(client).download(release.downloadUrl, temporary, connections = 4)
+            downloadAsset(release.downloadUrl, temporary)
             if (!ArchiveValidation.matchesSha256(ArchiveValidation.sha256(temporary), release.sha256)) throw InvalidUpdateException()
             if (!validateArchive(temporary, release.versionCode)) throw InvalidUpdateException()
             Files.move(temporary.toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING)

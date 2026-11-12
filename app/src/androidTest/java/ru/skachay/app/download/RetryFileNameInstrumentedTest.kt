@@ -10,7 +10,6 @@ import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,18 +65,26 @@ class RetryFileNameInstrumentedTest {
                     }
                     Thread.sleep(100)
                 }
-                assertNotNull("Expected an error notification", failure)
-                val retry = failure!!.actions.orEmpty().firstOrNull { it.title.toString() == "Повторить" }
-                assertNotNull("Expected a retry action", retry)
-                retry!!.actionIntent.send()
+                val failureNotification = requireNotNull(failure) { "Expected an error notification" }
+                val retryCandidate = failureNotification.actions.orEmpty().firstOrNull { it.title.toString() == "Повторить" }
+                val retry = requireNotNull(retryCandidate) { "Expected a retry action" }
+                retry.actionIntent.send()
                 val retryDeadline = SystemClock.elapsedRealtime() + 20_000
                 while (SystemClock.elapsedRealtime() < retryDeadline) {
                     saved = history.getString(url, null)?.let(Uri::parse)
                     if (saved != null) break
                     Thread.sleep(100)
                 }
-                assertNotNull("Expected the retried download to be saved", saved)
-                context.contentResolver.query(saved!!, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)!!.use { cursor ->
+                val savedUri = requireNotNull(saved) { "Expected the retried download to be saved" }
+                val displayNameCursor =
+                    context.contentResolver.query(
+                        savedUri,
+                        arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )
+                requireNotNull(displayNameCursor).use { cursor ->
                     assertTrue(cursor.moveToFirst())
                     assertEquals("$name.jpg", cursor.getString(0))
                 }

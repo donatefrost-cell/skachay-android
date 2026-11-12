@@ -10,7 +10,7 @@ class PreviewParserTest {
     @Test
     fun offersWebmAudioFormats() {
         val json = """{"title":"Видео","formats":[{"format_id":"251","ext":"webm","vcodec":"none","acodec":"opus","abr":128}]}"""
-        val formats = PreviewParser.parse(json)!!.formats
+        val formats = requireNotNull(PreviewParser.parse(json)).formats
         assertEquals(1, formats.size)
         assertEquals("251", formats.single().id)
         assertEquals("opus", formats.single().audioCodec)
@@ -24,7 +24,7 @@ class PreviewParserTest {
           {"format_id":"bad+selector","ext":"mp4","vcodec":"avc1","height":720},
           {"format_id":"storyboard","ext":"mhtml","vcodec":"none","acodec":"none"}
         ]}"""
-        val preview = PreviewParser.parse(json)!!
+        val preview = requireNotNull(PreviewParser.parse(json))
         assertEquals("Пример", preview.title)
         assertEquals("Автор", preview.author)
         assertEquals(75, preview.durationSeconds)
@@ -53,7 +53,7 @@ class PreviewParserTest {
               "formats": [{"format_id": "18", "ext": "mp4", "vcodec": "avc1", "acodec": "mp4a"}]
             }
             """.trimIndent()
-        val preview = PreviewParser.parse(json)!!
+        val preview = requireNotNull(PreviewParser.parse(json))
         assertEquals("Видео", preview.title)
         assertEquals("18", preview.formats.single().id)
     }
@@ -74,7 +74,7 @@ class PreviewParserTest {
               }]
             }
             """.trimIndent()
-        val format = PreviewParser.parse(json)!!.formats.single()
+        val format = requireNotNull(PreviewParser.parse(json)).formats.single()
         assertEquals("https://rr1.googlevideo.com/video?sig=abc", format.directUrl)
         assertEquals("https://www.youtube.com/", format.httpHeaders["Referer"])
         assertEquals("Skachay test", format.httpHeaders["User-Agent"])
@@ -95,7 +95,7 @@ class PreviewParserTest {
               }]
             }
             """.trimIndent()
-        val format = PreviewParser.parse(json)!!.formats.single()
+        val format = requireNotNull(PreviewParser.parse(json)).formats.single()
         assertNull(format.directUrl)
         assertEquals(emptyMap<String, String>(), format.httpHeaders)
     }
@@ -121,12 +121,7 @@ class PreviewParserTest {
               }]
             }
             """.trimIndent()
-        val headers =
-            PreviewParser
-                .parse(json)!!
-                .formats
-                .single()
-                .httpHeaders
+        val headers = requireNotNull(PreviewParser.parse(json)).formats.single().httpHeaders
         assertEquals(mapOf("User-Agent" to "Skachay test", "Referer" to "https://www.youtube.com/"), headers)
     }
 
@@ -136,7 +131,7 @@ class PreviewParserTest {
           {"format_id":"private","ext":"mp4","vcodec":"avc1","url":"https://192.168.1.5/video"},
           {"format_id":"port","ext":"mp4","vcodec":"avc1","url":"https://cdn.example:8443/video"}
         ]}"""
-        val preview = PreviewParser.parse(json)!!
+        val preview = requireNotNull(PreviewParser.parse(json))
         assertNull(preview.thumbnailUrl)
         assertEquals(2, preview.formats.size)
         assertTrue(preview.formats.all { it.directUrl == null })

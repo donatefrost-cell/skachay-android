@@ -8,7 +8,6 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,15 +85,15 @@ class ChoiceNotificationInstrumentedTest {
                 }
                 Thread.sleep(100)
             }
-            assertNotNull("Expected the completed download notification", notification)
-            val action = notification!!.actions.orEmpty().firstOrNull { it.title.toString() == actionLabel }
-            assertNotNull("Expected a choice action", action)
+            val completed = requireNotNull(notification) { "Expected the completed download notification" }
+            val actionCandidate = completed.actions.orEmpty().firstOrNull { it.title.toString() == actionLabel }
+            val action = requireNotNull(actionCandidate) { "Expected a choice action" }
             val monitor = instrumentation.addMonitor(ChoiceActivity::class.java.name, null, false)
-            action!!.actionIntent.send()
+            action.actionIntent.send()
             val choice = monitor.waitForActivityWithTimeout(10_000)
-            assertNotNull("Expected the choice screen", choice)
-            assertEquals(url, choice.intent.getStringExtra(DownloadService.EXTRA_URL))
-            choice.finish()
+            val choiceActivity = requireNotNull(choice) { "Expected the choice screen" }
+            assertEquals(url, choiceActivity.intent.getStringExtra(DownloadService.EXTRA_URL))
+            choiceActivity.finish()
             instrumentation.removeMonitor(monitor)
         } finally {
             notificationId?.let(manager::cancel)
