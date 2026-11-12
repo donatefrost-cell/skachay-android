@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -143,7 +142,6 @@ internal fun QualityChoiceSheetContent(
         Modifier
             .fillMaxWidth()
             .heightIn(max = maximumHeight)
-            .fillMaxHeight()
             .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -154,7 +152,7 @@ internal fun QualityChoiceSheetContent(
         }
 
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
+            Modifier.weight(1f, fill = false).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -1216,6 +1214,11 @@ internal enum class ChoicePreviewVariant { LOADED, LOADING, LONG_TITLE, AUDIO, A
 
 @Composable
 internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVariant.LOADED) {
+    val maximumHeight =
+        with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.height
+                .toDp() * 0.92f
+        }
     val longTitle = variant == ChoicePreviewVariant.LONG_TITLE
     val sample =
         remember(longTitle) {
@@ -1251,7 +1254,7 @@ internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVar
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f)) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
                 Surface(
-                    Modifier.fillMaxWidth().fillMaxSize(0.92f),
+                    Modifier.fillMaxWidth().heightIn(max = maximumHeight),
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     color = MaterialTheme.colorScheme.surface,
                 ) {

@@ -127,7 +127,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("com.google.code.gson:gson:2.15.0")
     implementation("com.google.re2j:re2j:1.8")
-    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.8"))
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.23.0"))
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("commons-io:commons-io:2.22.0")
