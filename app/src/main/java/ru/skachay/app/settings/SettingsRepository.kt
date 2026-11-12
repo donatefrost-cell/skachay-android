@@ -9,42 +9,50 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.settingsStore by preferencesDataStore(name = "settings")
 
-class SettingsRepository(private val store: DataStore<Preferences>) {
-    val settings: Flow<AppSettings> = store.data
-        .catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
-        }
-        .map { preferences ->
-            AppSettings(
-                onboardingComplete = preferences[ONBOARDING] ?: false,
-                mode = enumOrDefault(preferences[MODE], UserMode.SIMPLE),
-                quality = enumOrDefault(preferences[QUALITY], Quality.AUTO),
-                shareMode = enumOrDefault(preferences[SHARE_MODE], ShareMode.AUTO),
-                parallelDownloads = (preferences[PARALLEL] ?: 2).coerceIn(1, 4),
-                connections = (preferences[CONNECTIONS] ?: 8).coerceIn(1, 16),
-                retries = (preferences[RETRIES] ?: 2).coerceIn(0, 5),
-                engineChannel = enumOrDefault(preferences[ENGINE_CHANNEL], EngineChannel.STABLE),
-                largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
-                wifiOnly = preferences[WIFI_ONLY] ?: false,
-                youtubeQuality = preferences[YOUTUBE_QUALITY]?.let { enumOrDefault(it, preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO) },
-                videoBitrateLimit = VideoBitrateLimit.fromStoredName(preferences[VIDEO_BITRATE_LIMIT]),
-                platformQualityEnabled = preferences[PLATFORM_QUALITY_ENABLED] ?: false,
-                rememberQualityChoice = preferences[REMEMBER_QUALITY_CHOICE] ?: false,
-                lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
-                lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
-                lastQualityWasAudio = preferences[LAST_QUALITY_WAS_AUDIO] ?: false,
-                lastFormatId = preferences[LAST_FORMAT_ID],
-                downloadFolderUri = preferences[DOWNLOAD_FOLDER_URI],
-                fileNameTemplate = preferences[FILE_NAME_TEMPLATE],
-            )
-        }
+class SettingsRepository(
+    private val store: DataStore<Preferences>,
+) {
+    val settings: Flow<AppSettings> =
+        store.data
+            .catch { error ->
+                if (error is IOException) emit(emptyPreferences()) else throw error
+            }.map { preferences ->
+                AppSettings(
+                    onboardingComplete = preferences[ONBOARDING] ?: false,
+                    mode = enumOrDefault(preferences[MODE], UserMode.SIMPLE),
+                    quality = enumOrDefault(preferences[QUALITY], Quality.AUTO),
+                    shareMode = enumOrDefault(preferences[SHARE_MODE], ShareMode.AUTO),
+                    parallelDownloads = (preferences[PARALLEL] ?: 2).coerceIn(1, 4),
+                    connections = (preferences[CONNECTIONS] ?: 8).coerceIn(1, 16),
+                    retries = (preferences[RETRIES] ?: 2).coerceIn(0, 5),
+                    engineChannel = enumOrDefault(preferences[ENGINE_CHANNEL], EngineChannel.STABLE),
+                    largeMode = preferences[LARGE_MODE] ?: ((preferences[MODE] ?: UserMode.SIMPLE.name) == UserMode.SIMPLE.name),
+                    wifiOnly = preferences[WIFI_ONLY] ?: false,
+                    youtubeQuality =
+                        preferences[YOUTUBE_QUALITY]?.let {
+                            enumOrDefault(
+                                it,
+                                preferences[QUALITY]?.let { saved -> enumOrDefault(saved, Quality.AUTO) } ?: Quality.AUTO,
+                            )
+                        },
+                    videoBitrateLimit = VideoBitrateLimit.fromStoredName(preferences[VIDEO_BITRATE_LIMIT]),
+                    platformQualityEnabled = preferences[PLATFORM_QUALITY_ENABLED] ?: false,
+                    rememberQualityChoice = preferences[REMEMBER_QUALITY_CHOICE] ?: false,
+                    lastVideoQualityTier = preferences[LAST_VIDEO_QUALITY_TIER],
+                    lastAudioQualityKind = preferences[LAST_AUDIO_QUALITY_KIND],
+                    lastQualityWasAudio = preferences[LAST_QUALITY_WAS_AUDIO] ?: false,
+                    lastFormatId = preferences[LAST_FORMAT_ID],
+                    downloadFolderUri = preferences[DOWNLOAD_FOLDER_URI],
+                    fileNameTemplate = preferences[FILE_NAME_TEMPLATE],
+                )
+            }
 
     suspend fun selectMode(mode: UserMode) {
         store.edit {
@@ -60,20 +68,53 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         }
     }
 
-    suspend fun setQuality(quality: Quality) { store.edit { it[QUALITY] = quality.name } }
-    suspend fun setShareMode(mode: ShareMode) { store.edit { it[SHARE_MODE] = mode.name } }
-    suspend fun setParallelDownloads(value: Int) { store.edit { it[PARALLEL] = value.coerceIn(1, 4) } }
-    suspend fun setConnections(value: Int) { store.edit { it[CONNECTIONS] = value.coerceIn(1, 16) } }
-    suspend fun setRetries(value: Int) { store.edit { it[RETRIES] = value.coerceIn(0, 5) } }
-    suspend fun setEngineChannel(channel: EngineChannel) { store.edit { it[ENGINE_CHANNEL] = channel.name } }
-    suspend fun setLargeMode(enabled: Boolean) { store.edit { it[LARGE_MODE] = enabled } }
-    suspend fun setWifiOnly(enabled: Boolean) { store.edit { it[WIFI_ONLY] = enabled } }
+    suspend fun setQuality(quality: Quality) {
+        store.edit { it[QUALITY] = quality.name }
+    }
+
+    suspend fun setShareMode(mode: ShareMode) {
+        store.edit { it[SHARE_MODE] = mode.name }
+    }
+
+    suspend fun setParallelDownloads(value: Int) {
+        store.edit { it[PARALLEL] = value.coerceIn(1, 4) }
+    }
+
+    suspend fun setConnections(value: Int) {
+        store.edit { it[CONNECTIONS] = value.coerceIn(1, 16) }
+    }
+
+    suspend fun setRetries(value: Int) {
+        store.edit { it[RETRIES] = value.coerceIn(0, 5) }
+    }
+
+    suspend fun setEngineChannel(channel: EngineChannel) {
+        store.edit { it[ENGINE_CHANNEL] = channel.name }
+    }
+
+    suspend fun setLargeMode(enabled: Boolean) {
+        store.edit { it[LARGE_MODE] = enabled }
+    }
+
+    suspend fun setWifiOnly(enabled: Boolean) {
+        store.edit { it[WIFI_ONLY] = enabled }
+    }
+
     suspend fun setVideoBitrateLimit(limit: VideoBitrateLimit) {
         val saved = VideoBitrateLimit.fromStoredName(limit.name)
         store.edit { it[VIDEO_BITRATE_LIMIT] = saved.name }
     }
-    suspend fun setRememberQualityChoice(enabled: Boolean) { store.edit { it[REMEMBER_QUALITY_CHOICE] = enabled } }
-    suspend fun setLastQualityChoices(videoTier: String?, audioKind: String?, wasAudio: Boolean? = null, formatId: String? = null) {
+
+    suspend fun setRememberQualityChoice(enabled: Boolean) {
+        store.edit { it[REMEMBER_QUALITY_CHOICE] = enabled }
+    }
+
+    suspend fun setLastQualityChoices(
+        videoTier: String?,
+        audioKind: String?,
+        wasAudio: Boolean? = null,
+        formatId: String? = null,
+    ) {
         store.edit { preferences ->
             if (videoTier == null) preferences.remove(LAST_VIDEO_QUALITY_TIER) else preferences[LAST_VIDEO_QUALITY_TIER] = videoTier
             if (audioKind == null) preferences.remove(LAST_AUDIO_QUALITY_KIND) else preferences[LAST_AUDIO_QUALITY_KIND] = audioKind
@@ -81,26 +122,37 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
             if (formatId == null) preferences.remove(LAST_FORMAT_ID) else preferences[LAST_FORMAT_ID] = formatId.take(80)
         }
     }
+
     suspend fun setDownloadFolderUri(uri: String?) {
         store.edit { preferences ->
             if (uri == null) preferences.remove(DOWNLOAD_FOLDER_URI) else preferences[DOWNLOAD_FOLDER_URI] = uri
         }
     }
+
     suspend fun setFileNameTemplate(template: String?) {
         store.edit { preferences ->
             val cleaned = template?.trim()?.take(128)?.takeIf { it.isNotEmpty() }
             if (cleaned == null) preferences.remove(FILE_NAME_TEMPLATE) else preferences[FILE_NAME_TEMPLATE] = cleaned
         }
     }
-    suspend fun setPlatformQuality(platform: DownloadPlatform, quality: Quality) {
+
+    suspend fun setPlatformQuality(
+        platform: DownloadPlatform,
+        quality: Quality,
+    ) {
         store.edit { preferences ->
-            preferences[when (platform) {
-                DownloadPlatform.YOUTUBE -> YOUTUBE_QUALITY
-                DownloadPlatform.OTHER -> QUALITY
-            }] = quality.name
+            preferences[
+                when (platform) {
+                    DownloadPlatform.YOUTUBE -> YOUTUBE_QUALITY
+                    DownloadPlatform.OTHER -> QUALITY
+                },
+            ] = quality.name
         }
     }
-    suspend fun setPlatformQualityEnabled(enabled: Boolean) { store.edit { it[PLATFORM_QUALITY_ENABLED] = enabled } }
+
+    suspend fun setPlatformQualityEnabled(enabled: Boolean) {
+        store.edit { it[PLATFORM_QUALITY_ENABLED] = enabled }
+    }
 
     companion object {
         private val ONBOARDING = booleanPreferencesKey("onboarding_complete")
@@ -126,7 +178,9 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
 
         fun forContext(context: Context): SettingsRepository = SettingsRepository(context.applicationContext.settingsStore)
 
-        private inline fun <reified T : Enum<T>> enumOrDefault(value: String?, default: T): T =
-            enumValues<T>().firstOrNull { it.name == value } ?: default
+        private inline fun <reified T : Enum<T>> enumOrDefault(
+            value: String?,
+            default: T,
+        ): T = enumValues<T>().firstOrNull { it.name == value } ?: default
     }
 }

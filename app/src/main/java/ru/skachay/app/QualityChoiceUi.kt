@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app
 
 import android.content.res.Configuration
@@ -7,16 +9,19 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,7 +39,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +48,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -58,22 +63,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import java.util.Locale
+import ru.skachay.app.choice.AdvancedFormatFilter
 import ru.skachay.app.choice.AvailableFormat
 import ru.skachay.app.choice.FormatSelection
 import ru.skachay.app.choice.FormatSelectionResolver
 import ru.skachay.app.choice.SubtitleTrack
 import ru.skachay.app.choice.VideoPreview
 import ru.skachay.app.choice.codecFamily
+import ru.skachay.app.choice.filterAdvancedFormats
 import ru.skachay.app.choice.formatAdvancedBitrateRu
 import ru.skachay.app.choice.formatAdvancedSizeRu
 import ru.skachay.app.choice.formatMediaSizeRu
@@ -81,9 +92,11 @@ import ru.skachay.app.choice.isGalleryCompatible
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.QualityPresetPresentation
 import ru.skachay.app.settings.VideoBitrateLimit
+import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun QualityChoiceSheetContent(
     preview: VideoPreview?,
@@ -111,15 +124,27 @@ internal fun QualityChoiceSheetContent(
     initiallyAdvancedExpanded: Boolean = false,
     onCancel: () -> Unit,
 ) {
-    val configuration = LocalConfiguration.current
-    val maximumHeight = (configuration.screenHeightDp * 0.92f).dp
+    val maximumHeight =
+        with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.height
+                .toDp() * 0.92f
+        }
     var advancedExpanded by remember(preview, initiallyAdvancedExpanded) { mutableStateOf(initiallyAdvancedExpanded) }
-    val visibleFormats = remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
-    val videoGroups = remember(visibleFormats) {
-        visibleFormats.filter { it.hasVideo }.groupBy { it.height ?: 0 }.toSortedMap(compareByDescending { it })
-    }
+    val visibleFormats =
+        remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
+    var exactFormatFilter by remember(preview) { mutableStateOf(AdvancedFormatFilter.COMPATIBLE) }
+    val videoGroups =
+        remember(visibleFormats, exactFormatFilter) {
+            filterAdvancedFormats(visibleFormats.filter { it.hasVideo }, exactFormatFilter)
+                .groupBy { it.height ?: 0 }
+                .toSortedMap(compareByDescending { it })
+        }
     Column(
-        Modifier.fillMaxWidth().heightIn(max = maximumHeight).fillMaxHeight().padding(horizontal = 20.dp),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = maximumHeight)
+            .fillMaxHeight()
+            .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when {
@@ -138,14 +163,17 @@ internal fun QualityChoiceSheetContent(
                         SegmentedButton(
                             selected = selection.audio == audio,
                             onClick = {
-                                onSelectionChanged(selection.withFilters(
-                                    resolution = if (audio) null else selection.resolution,
-                                    bitrateStop = if (audio) VideoBitrateLimit.ANY else selection.bitrateStop,
-                                    codec = null,
-                                    fps = null,
-                                    container = null,
-                                    audio = audio,
-                                ).copy(videoOnly = false, audioExport = AudioExport.SOURCE))
+                                onSelectionChanged(
+                                    selection
+                                        .withFilters(
+                                            resolution = if (audio) null else selection.resolution,
+                                            bitrateStop = if (audio) VideoBitrateLimit.ANY else selection.bitrateStop,
+                                            codec = null,
+                                            fps = null,
+                                            container = null,
+                                            audio = audio,
+                                        ).copy(videoOnly = false, audioExport = AudioExport.SOURCE),
+                                )
                             },
                             shape = SegmentedButtonDefaults.itemShape(index, 2),
                         ) { Text(label, maxLines = 1) }
@@ -158,7 +186,14 @@ internal fun QualityChoiceSheetContent(
                     Text("Формат звука", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         AudioExport.entries.filter { it == AudioExport.SOURCE || it == AudioExport.MP3 }.forEach { export ->
-                            val label = if (export == AudioExport.SOURCE) "Исходное · m4a" else "MP3 · ${selection.audioBitrate.kilobits} кбит/с"
+                            val label =
+                                if (export ==
+                                    AudioExport.SOURCE
+                                ) {
+                                    "Исходное · m4a"
+                                } else {
+                                    "MP3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
+                                }
                             FilterChip(
                                 selected = selection.audioExport == export,
                                 onClick = { onSelectionChanged(selection.copy(audioExport = export)) },
@@ -171,27 +206,45 @@ internal fun QualityChoiceSheetContent(
             } else {
                 item {
                     Text("Качество", style = MaterialTheme.typography.titleMedium)
-                    val resolutions = remember(preview) {
-                        preview?.formats.orEmpty().filter { it.hasVideo }.mapNotNull { it.height }.distinct().sortedDescending()
-                    }
+                    val selectedQuality = selection.resolution?.let(::qualityForResolution) ?: selection.qualityPreset
+                    Text(QualityPresetPresentation.summary(selectedQuality), style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        QualityPresetPresentation.hint(selectedQuality),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FilterChip(
-                            selected = selection.resolution == null,
-                            onClick = { updateFilters(selection, resolution = null, onSelectionChanged = onSelectionChanged) },
-                            label = { Text("Авто", maxLines = 1) },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        )
-                        resolutions.forEach { height ->
+                        QualityPresetPresentation.options.forEach { option ->
+                            val isSelected = selectedQuality == option.quality
                             FilterChip(
-                                selected = selection.resolution == height,
-                                onClick = { updateFilters(selection, resolution = height, onSelectionChanged = onSelectionChanged) },
-                                label = { Text("${height}p", maxLines = 1) },
-                                modifier = Modifier.heightIn(min = 48.dp),
+                                selected = isSelected,
+                                onClick = {
+                                    onSelectionChanged(
+                                        selection.copy(
+                                            resolution = option.quality.maximumHeight,
+                                            qualityPreset = option.quality,
+                                            customBitrateKbps = null,
+                                            pinnedFormatId = null,
+                                        ),
+                                    )
+                                },
+                                label = { Text(option.label, maxLines = 1, softWrap = false) },
+                                modifier =
+                                    Modifier
+                                        .defaultMinSize(minWidth = 72.dp)
+                                        .heightIn(min = 48.dp)
+                                        .semantics {
+                                            contentDescription = "${option.label}, ${if (isSelected) "выбрано" else "не выбрано"}"
+                                            stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                                        },
                             )
                         }
                     }
                     Spacer(Modifier.height(2.dp))
                     SelectedFormatCard(selection, selectedFormat, estimatedSizeBytes)
+                    if (!selection.audio) {
+                        VideoBitrateSlider(preview, selection, selectedFormat, estimatedSizeBytes, onSelectionChanged)
+                    }
                 }
             }
 
@@ -200,13 +253,24 @@ internal fun QualityChoiceSheetContent(
             } else if (errorMessage != null) {
                 item { Text(errorMessage, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
             } else if (preview != null && selectedFormat == null) {
-                item { Text("Подходящий формат не найден. Измените фильтры или попробуйте «Авто».", style = MaterialTheme.typography.bodyMedium) }
+                item {
+                    Text(
+                        "Подходящий формат не найден. Измените фильтры или попробуйте «Авто».",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
 
             if (selection.audio && selection.audioExport == AudioExport.MP3) {
                 item {
                     FilterGroup("Битрейт MP3") {
-                        listOf(AudioBitrate.K96, AudioBitrate.K128, AudioBitrate.K192, AudioBitrate.K256, AudioBitrate.K320).forEach { bitrate ->
+                        listOf(
+                            AudioBitrate.K96,
+                            AudioBitrate.K128,
+                            AudioBitrate.K192,
+                            AudioBitrate.K256,
+                            AudioBitrate.K320,
+                        ).forEach { bitrate ->
                             FilterChip(
                                 selected = selection.audioBitrate == bitrate,
                                 onClick = { onSelectionChanged(selection.copy(audioBitrate = bitrate)) },
@@ -221,16 +285,28 @@ internal fun QualityChoiceSheetContent(
             if (advancedMode && preview != null && !loading) {
                 item {
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
-                            .clickable { advancedExpanded = !advancedExpanded }.padding(horizontal = 8.dp, vertical = 4.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { advancedExpanded = !advancedExpanded }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(if (advancedExpanded) "Скрыть дополнительно" else "Дополнительно", style = MaterialTheme.typography.titleSmall)
-                            Text("Фильтры и точные форматы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (advancedExpanded) "Скрыть дополнительно" else "Дополнительно",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                "Фильтры и точные форматы",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Icon(
-                            painterResource(R.drawable.ic_back), contentDescription = if (advancedExpanded) "Свернуть" else "Развернуть",
+                            painterResource(R.drawable.ic_back),
+                            contentDescription = if (advancedExpanded) "Свернуть" else "Развернуть",
                             modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (advancedExpanded) 90f else -90f),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -240,37 +316,74 @@ internal fun QualityChoiceSheetContent(
                     item {
                         AdvancedFilters(preview, selection, onSelectionChanged)
                     }
-                    videoGroups.forEach { (height, formats) ->
-                        item(key = "format-resolution-$height") {
-                            Text(if (height > 0) "${height}p" else "Разрешение неизвестно", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 4.dp))
+                    item {
+                        Text("Точный формат", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FormatFilterChip(
+                                "Работает везде",
+                                exactFormatFilter == AdvancedFormatFilter.COMPATIBLE,
+                            ) { exactFormatFilter = AdvancedFormatFilter.COMPATIBLE }
+                            FormatFilterChip(
+                                "Все форматы",
+                                exactFormatFilter == AdvancedFormatFilter.ALL,
+                            ) { exactFormatFilter = AdvancedFormatFilter.ALL }
                         }
-                        items(formats.sortedWith(compareByDescending<AvailableFormat> { it.fps ?: 0 }.thenByDescending { it.videoBitrate ?: 0 }), key = { "format-${it.id}" }) { format ->
+                    }
+                    videoGroups.forEach { (height, formats) ->
+                        stickyHeader(key = "format-resolution-$height") {
+                            Text(
+                                if (height >
+                                    0
+                                ) {
+                                    "${height}p"
+                                } else {
+                                    "Разрешение неизвестно"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        items(
+                            formats.sortedWith(
+                                compareByDescending<AvailableFormat> { it.fps ?: 0 }.thenByDescending {
+                                    it.videoBitrate
+                                        ?: 0
+                                },
+                            ),
+                            key = { "format-${it.id}" },
+                        ) { format ->
                             AdvancedFormatRow(preview, format, selectedFormat?.id == format.id) { onFormatSelected(format) }
                         }
                     }
                     if (selection.audio) {
-                        item { Text("Форматы звука", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp)) }
-                        val audioFormats = visibleFormats.filter { !it.hasVideo && it.hasAudio }
+                        item {
+                            Text(
+                                "Форматы звука",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        val audioCandidates = visibleFormats.filter { !it.hasVideo && it.hasAudio }
+                        val audioFormats =
+                            if (exactFormatFilter == AdvancedFormatFilter.COMPATIBLE) {
+                                audioCandidates.filter(::isGalleryCompatible)
+                            } else {
+                                audioCandidates
+                            }
                         items(audioFormats, key = { "audio-${it.id}" }) { format ->
                             AdvancedFormatRow(preview, format, selectedFormat?.id == format.id) { onFormatSelected(format) }
                         }
                     }
                     if (!selection.audio) {
                         item {
-                            Row(
-                                Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(
-                                    selected = selection.videoOnly,
-                                    enabled = preview.formats.any { it.hasVideo && !it.hasAudio },
-                                    onClick = { onSelectionChanged(selection.copy(videoOnly = !selection.videoOnly, pinnedFormatId = null)) },
-                                ).padding(horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            AdvancedSwitchRow(
+                                "Видео без звука",
+                                selection.videoOnly,
+                                enabled = preview.formats.any { it.hasVideo && !it.hasAudio },
                             ) {
-                                Checkbox(checked = selection.videoOnly, onCheckedChange = null, enabled = preview.formats.any { it.hasVideo && !it.hasAudio })
-                                Column(Modifier.padding(start = 8.dp)) {
-                                    Text("Видео без звука", style = MaterialTheme.typography.titleSmall)
-                                    Text("Без отдельной аудиодорожки", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                                onSelectionChanged(selection.copy(videoOnly = it, pinnedFormatId = null))
                             }
                         }
                     }
@@ -280,50 +393,108 @@ internal fun QualityChoiceSheetContent(
                     item {
                         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text("Папка сохранения", style = MaterialTheme.typography.titleSmall)
-                            Text(saveFolderLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                saveFolderLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = onChooseSaveFolder, modifier = Modifier.heightIn(min = 48.dp)) { Text("Выбрать папку") }
-                                if (saveFolderLabel != DEFAULT_SAVE_FOLDER_LABEL) TextButton(onClick = onResetSaveFolder, modifier = Modifier.heightIn(min = 48.dp)) { Text("По умолчанию") }
+                                TextButton(
+                                    onClick = onChooseSaveFolder,
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                ) { Text("Выбрать папку") }
+                                if (saveFolderLabel !=
+                                    DEFAULT_SAVE_FOLDER_LABEL
+                                ) {
+                                    TextButton(
+                                        onClick = onResetSaveFolder,
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                    ) { Text("По умолчанию") }
+                                }
                             }
                         }
                     }
                     item { Text("Субтитры", style = MaterialTheme.typography.titleSmall) }
-                    item { AdvancedSubtitles(preview, selection.subtitleLanguage, selection.subtitleAutomatic) { language, automatic ->
-                        onSelectionChanged(selection.copy(
-                            subtitleLanguage = language,
-                            subtitleAutomatic = automatic,
-                            embedSubtitles = if (language == null) false else selection.embedSubtitles,
-                            pinnedFormatId = selection.pinnedFormatId,
-                        ))
-                    } }
                     item {
-                        AdvancedSwitchRow("Встроить субтитры", selection.subtitleLanguage != null && selection.embedSubtitles,
-                            enabled = selection.subtitleLanguage != null) { onSelectionChanged(selection.copy(embedSubtitles = it)) }
+                        AdvancedSubtitles(preview, selection.subtitleLanguage, selection.subtitleAutomatic) { language, automatic ->
+                            onSelectionChanged(
+                                selection.copy(
+                                    subtitleLanguage = language,
+                                    subtitleAutomatic = automatic,
+                                    embedSubtitles = if (language == null) false else selection.embedSubtitles,
+                                    pinnedFormatId = selection.pinnedFormatId,
+                                ),
+                            )
+                        }
                     }
-                    item { AdvancedSwitchRow("Добавить миниатюру в файл", selection.embedThumbnail) {
-                        onSelectionChanged(selection.copy(embedThumbnail = it))
-                    } }
+                    item {
+                        AdvancedSwitchRow(
+                            "Встроить субтитры",
+                            selection.subtitleLanguage != null && selection.embedSubtitles,
+                            enabled = selection.subtitleLanguage != null,
+                        ) { onSelectionChanged(selection.copy(embedSubtitles = it)) }
+                    }
+                    item {
+                        AdvancedSwitchRow("Добавить миниатюру в файл", selection.embedThumbnail) {
+                            onSelectionChanged(selection.copy(embedThumbnail = it))
+                        }
+                    }
                 }
             }
 
             if (preview != null && !loading) {
                 item {
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(rememberChoice, onClick = { onRememberChoiceChanged(!rememberChoice) }).padding(horizontal = 4.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(rememberChoice, onClick = {
+                                onRememberChoiceChanged(!rememberChoice)
+                            })
+                            .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Checkbox(checked = rememberChoice, onCheckedChange = null)
-                        Text("Запомнить выбор", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("Запомнить выбор", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = rememberChoice, onCheckedChange = null, modifier = Modifier.size(48.dp))
                     }
                 }
             }
         }
 
+        if (selection.pinnedFormatId != null) {
+            TextButton(
+                onClick = {
+                    onSelectionChanged(
+                        selection.copy(
+                            resolution = null,
+                            qualityPreset = Quality.AUTO,
+                            bitrateStop = VideoBitrateLimit.ANY,
+                            customBitrateKbps = null,
+                            codec = null,
+                            fps = null,
+                            container = null,
+                            audio = false,
+                            videoOnly = false,
+                            pinnedFormatId = null,
+                            audioExport = AudioExport.SOURCE,
+                        ),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("Сбросить точный формат") }
+        }
+
         Button(
             enabled = downloadEnabled && !loading,
             onClick = onDownload,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).navigationBarsPadding().padding(bottom = 4.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 4.dp),
         ) {
             val size = estimatedSizeBytes?.let { formatMediaSizeRu(it).removePrefix("≈") }
             Text(if (size == null) "Скачать" else "Скачать · $size", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -331,73 +502,301 @@ internal fun QualityChoiceSheetContent(
     }
 }
 
-private fun updateFilters(selection: FormatSelection, resolution: Int?, onSelectionChanged: (FormatSelection) -> Unit) {
-    onSelectionChanged(selection.withFilters(
-        resolution = resolution,
-        bitrateStop = selection.bitrateStop,
-        codec = selection.codec,
-        fps = selection.fps,
-        container = selection.container,
-        audio = selection.audio,
-    ))
+private fun updateFilters(
+    selection: FormatSelection,
+    resolution: Int?,
+    onSelectionChanged: (FormatSelection) -> Unit,
+) {
+    onSelectionChanged(
+        selection.withFilters(
+            resolution = resolution,
+            bitrateStop = selection.bitrateStop,
+            codec = selection.codec,
+            fps = selection.fps,
+            container = selection.container,
+            audio = selection.audio,
+        ),
+    )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+private data class VideoBitrateOption(
+    val caption: String,
+    val maxKbps: Int?,
+    val preset: VideoBitrateLimit?,
+)
+
+private fun qualityForResolution(height: Int): Quality =
+    when {
+        height > 2160 -> Quality.MAX
+        height >= 2160 -> Quality.P2160
+        height >= 1440 -> Quality.P1440
+        height >= 1080 -> Quality.P1080
+        height >= 720 -> Quality.P720
+        height >= 480 -> Quality.P480
+        height >= 360 -> Quality.P360
+        height >= 240 -> Quality.P240
+        else -> Quality.P144
+    }
+
+private fun videoBitrateOptions(
+    preview: VideoPreview?,
+    selection: FormatSelection,
+): List<VideoBitrateOption> {
+    val actualRates =
+        buildList {
+            preview
+                ?.formats
+                .orEmpty()
+                .asSequence()
+                .filter { it.hasVideo && (selection.resolution == null || it.height == selection.resolution) }
+                .mapNotNull { it.videoBitrate?.takeIf { bitrate -> bitrate > 0 } }
+                .forEach(::add)
+            selection.customBitrateKbps?.let(::add)
+        }.distinct().sorted()
+    val useActualRates = actualRates.size >= 2 && (selection.bitrateStop == VideoBitrateLimit.ANY || selection.customBitrateKbps != null)
+    if (useActualRates) {
+        val representativeRates =
+            if (actualRates.size <= 4) {
+                actualRates
+            } else {
+                listOf(
+                    actualRates.first(),
+                    actualRates[actualRates.lastIndex / 3],
+                    actualRates[(actualRates.lastIndex * 2) / 3],
+                    actualRates.last(),
+                ).distinct()
+            }
+        return representativeRates
+            .map { bitrate -> VideoBitrateOption(formatBitrateNumber(bitrate), bitrate, null) } +
+            VideoBitrateOption("Макс", null, VideoBitrateLimit.ANY)
+    }
+    return VideoBitrateLimit.stops.map { stop -> VideoBitrateOption(stop.stopCaption, stop.maxKbps, stop) }
+}
+
+private fun formatBitrateNumber(kilobitsPerSecond: Int): String =
+    formatAdvancedBitrateRu(kilobitsPerSecond)
+        .removeSuffix("\u00a0Мбит/с")
+        .removeSuffix("\u00a0кбит/с")
+
 @Composable
-private fun AdvancedFilters(preview: VideoPreview, selection: FormatSelection, onChange: (FormatSelection) -> Unit) {
-    val videoFormats = preview.formats.filter { it.hasVideo }
-    val availableBitrates = videoFormats.mapNotNull { it.videoBitrate }
-    val maximumBitrate = availableBitrates.maxOrNull()
-    val stops = VideoBitrateLimit.stops.filter { it.maxKbps == null || maximumBitrate == null || it.maxKbps <= maximumBitrate || it == selection.bitrateStop }
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (!selection.audio) {
-            FilterGroup("Ограничение битрейта") {
-                stops.forEach { stop ->
-                    val label = if (stop.maxKbps == null) "Макс" else "${stop.stopCaption} Мбит/с"
-                    FilterChip(
-                        selected = selection.bitrateStop == stop,
-                        onClick = { onChange(selection.withFilters(selection.resolution, stop, selection.codec, selection.fps, selection.container, selection.audio)) },
-                        label = { Text(label, maxLines = 1) }, modifier = Modifier.heightIn(min = 44.dp),
+private fun VideoBitrateSlider(
+    preview: VideoPreview?,
+    selection: FormatSelection,
+    selectedFormat: AvailableFormat?,
+    estimatedSizeBytes: Long?,
+    onSelectionChanged: (FormatSelection) -> Unit,
+) {
+    val options =
+        remember(
+            preview,
+            selection.resolution,
+            selection.bitrateStop,
+            selection.customBitrateKbps,
+        ) { videoBitrateOptions(preview, selection) }
+    val selectedIndex =
+        options
+            .indexOfFirst { option ->
+                if (selection.customBitrateKbps != null) {
+                    option.preset == null && option.maxKbps == selection.customBitrateKbps
+                } else {
+                    option.preset == selection.bitrateStop
+                }
+            }.coerceAtLeast(0)
+    val selected = options[selectedIndex]
+    val currentLabel =
+        when {
+            selection.customBitrateKbps != null -> formatAdvancedBitrateRu(selection.customBitrateKbps)
+            selected.maxKbps == null -> "Макс"
+            else -> "До ${formatAdvancedBitrateRu(selected.maxKbps)}"
+        }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        val showAllStops = maxWidth >= (options.size * 52).dp * density.fontScale
+        val shownIndices =
+            if (showAllStops) {
+                options.indices.toList()
+            } else {
+                options.indices.filter { it % 2 == 0 || it == selectedIndex }
+            }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Битрейт", style = MaterialTheme.typography.titleSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    currentLabel,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(formatMediaSizeRu(estimatedSizeBytes ?: selectedFormat?.sizeBytes), style = MaterialTheme.typography.bodySmall)
+            }
+            Slider(
+                value = selectedIndex.toFloat(),
+                onValueChange = { value ->
+                    val option = options[value.toInt().coerceIn(options.indices)]
+                    onSelectionChanged(
+                        selection.copy(
+                            bitrateStop = option.preset ?: VideoBitrateLimit.ANY,
+                            customBitrateKbps = if (option.preset == null) option.maxKbps else null,
+                            pinnedFormatId = null,
+                        ),
                     )
+                },
+                valueRange = 0f..options.lastIndex.toFloat(),
+                steps = (options.size - 2).coerceAtLeast(0),
+                modifier =
+                    Modifier.semantics {
+                        contentDescription = "Битрейт"
+                        stateDescription = currentLabel
+                    },
+            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                shownIndices.forEach { index ->
+                    val option = options[index]
+                    val isSelected = index == selectedIndex
+                    TextButton(
+                        onClick = {
+                            onSelectionChanged(
+                                selection.copy(
+                                    bitrateStop = option.preset ?: VideoBitrateLimit.ANY,
+                                    customBitrateKbps = if (option.preset == null) option.maxKbps else null,
+                                    pinnedFormatId = null,
+                                ),
+                            )
+                        },
+                        modifier =
+                            Modifier.heightIn(min = 48.dp).semantics {
+                                contentDescription = "${option.caption}, ${if (isSelected) "выбрано" else "выбрать"}"
+                                stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                            },
+                    ) {
+                        Text(
+                            option.caption,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
                 }
             }
-        }
-        val relevantFormats = if (selection.audio) preview.formats.filter { !it.hasVideo && it.hasAudio } else videoFormats
-        val families = remember(preview, selection.audio) { relevantFormats.map(::codecFamily).distinct().sorted() }
-        FilterGroup("Кодек") {
-            FormatFilterChip("Все", selection.codec == null) {
-                onChange(selection.withFilters(selection.resolution, selection.bitrateStop, null, selection.fps, selection.container, selection.audio))
-            }
-            families.forEach { codec -> FormatFilterChip(codec, selection.codec == codec) {
-                onChange(selection.withFilters(selection.resolution, selection.bitrateStop, codec, selection.fps, selection.container, selection.audio))
-            } }
-        }
-        if (!selection.audio) {
-            val frameRates = remember(preview) { videoFormats.mapNotNull { it.fps }.distinct().sorted() }
-            FilterGroup("Частота кадров") {
-                FormatFilterChip("Любая", selection.fps == null) {
-                    onChange(selection.withFilters(selection.resolution, selection.bitrateStop, selection.codec, null, selection.container, selection.audio))
-                }
-                frameRates.forEach { fps -> FormatFilterChip("$fps к/с", selection.fps == fps) {
-                    onChange(selection.withFilters(selection.resolution, selection.bitrateStop, selection.codec, fps, selection.container, selection.audio))
-                } }
-            }
-        }
-        val containers = remember(preview, selection.audio) { relevantFormats.map { it.extension }.distinct().sorted() }
-        FilterGroup("Контейнер") {
-            FormatFilterChip("Любой", selection.container == null) {
-                onChange(selection.withFilters(selection.resolution, selection.bitrateStop, selection.codec, selection.fps, null, selection.audio))
-            }
-            containers.forEach { container -> FormatFilterChip(container.uppercase(Locale.forLanguageTag("ru")), selection.container == container) {
-                onChange(selection.withFilters(selection.resolution, selection.bitrateStop, selection.codec, selection.fps, container, selection.audio))
-            } }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FilterGroup(title: String, content: @Composable () -> Unit) {
+private fun AdvancedFilters(
+    preview: VideoPreview,
+    selection: FormatSelection,
+    onChange: (FormatSelection) -> Unit,
+) {
+    val videoFormats = preview.formats.filter { it.hasVideo }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val relevantFormats = if (selection.audio) preview.formats.filter { !it.hasVideo && it.hasAudio } else videoFormats
+        val families = remember(preview, selection.audio) { relevantFormats.map(::codecFamily).distinct().sorted() }
+        FilterGroup("Кодек") {
+            FormatFilterChip("Все", selection.codec == null) {
+                onChange(
+                    selection.withFilters(
+                        selection.resolution,
+                        selection.bitrateStop,
+                        null,
+                        selection.fps,
+                        selection.container,
+                        selection.audio,
+                    ),
+                )
+            }
+            families.forEach { codec ->
+                FormatFilterChip(codec, selection.codec == codec) {
+                    onChange(
+                        selection.withFilters(
+                            selection.resolution,
+                            selection.bitrateStop,
+                            codec,
+                            selection.fps,
+                            selection.container,
+                            selection.audio,
+                        ),
+                    )
+                }
+            }
+        }
+        if (!selection.audio) {
+            val frameRates = remember(preview) { videoFormats.mapNotNull { it.fps }.distinct().sorted() }
+            FilterGroup("Частота кадров") {
+                FormatFilterChip("Любая", selection.fps == null) {
+                    onChange(
+                        selection.withFilters(
+                            selection.resolution,
+                            selection.bitrateStop,
+                            selection.codec,
+                            null,
+                            selection.container,
+                            selection.audio,
+                        ),
+                    )
+                }
+                frameRates.forEach { fps ->
+                    FormatFilterChip("$fps к/с", selection.fps == fps) {
+                        onChange(
+                            selection.withFilters(
+                                selection.resolution,
+                                selection.bitrateStop,
+                                selection.codec,
+                                fps,
+                                selection.container,
+                                selection.audio,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        val containers = remember(preview, selection.audio) { relevantFormats.map { it.extension }.distinct().sorted() }
+        FilterGroup("Контейнер") {
+            FormatFilterChip("Любой", selection.container == null) {
+                onChange(
+                    selection.withFilters(
+                        selection.resolution,
+                        selection.bitrateStop,
+                        selection.codec,
+                        selection.fps,
+                        null,
+                        selection.audio,
+                    ),
+                )
+            }
+            containers.forEach { container ->
+                FormatFilterChip(
+                    container.uppercase(Locale.forLanguageTag("ru")),
+                    selection.container == container,
+                ) {
+                    onChange(
+                        selection.withFilters(
+                            selection.resolution,
+                            selection.bitrateStop,
+                            selection.codec,
+                            selection.fps,
+                            container,
+                            selection.audio,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterGroup(
+    title: String,
+    content: @Composable () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
@@ -405,17 +804,40 @@ private fun FilterGroup(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun FormatFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun FormatFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     FilterChip(selected, onClick, label = { Text(label, maxLines = 1) }, modifier = Modifier.heightIn(min = 44.dp))
 }
 
 @Composable
-private fun SelectedFormatCard(selection: FormatSelection, format: AvailableFormat?, size: Long?) {
-    val name = when {
-        format == null -> "Формат не найден"
-        selection.audio -> if (selection.audioExport == AudioExport.MP3) "MP3 · ${selection.audioBitrate.kilobits} кбит/с" else "Исходное аудио · ${format.extension.uppercase(Locale.ROOT)}"
-        else -> "Видео · ${format.height ?: "?"}p" + (format.fps?.takeIf { it > 30 }?.let { " · $it к/с" } ?: "")
-    }
+private fun SelectedFormatCard(
+    selection: FormatSelection,
+    format: AvailableFormat?,
+    size: Long?,
+) {
+    val name =
+        when {
+            format == null -> {
+                "Формат не найден"
+            }
+
+            selection.audio -> {
+                if (selection.audioExport ==
+                    AudioExport.MP3
+                ) {
+                    "MP3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
+                } else {
+                    "Исходное аудио · ${format.extension.uppercase(Locale.ROOT)}"
+                }
+            }
+
+            else -> {
+                "Видео · ${format.height ?: "?"}p" + (format.fps?.takeIf { it > 30 }?.let { " · $it к/с" } ?: "")
+            }
+        }
     Card(
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
         shape = RoundedCornerShape(16.dp),
@@ -433,39 +855,94 @@ private fun SelectedFormatCard(selection: FormatSelection, format: AvailableForm
                         else -> "Может не воспроизводиться в галерее"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (format != null && !isGalleryCompatible(format)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color =
+                        if (format != null &&
+                            !isGalleryCompatible(format)
+                        ) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     maxLines = 2,
                 )
             }
-            Text(formatMediaSizeRu(size), style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                color = if (size != null && size >= 500_000_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            Text(
+                formatMediaSizeRu(size),
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                color = if (size != null && size >= 500_000_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
 
 @Composable
-private fun QualityChoiceHeader(preview: VideoPreview, source: String) {
+private fun QualityChoiceHeader(
+    preview: VideoPreview,
+    source: String,
+) {
     val context = LocalContext.current
-    val request = remember(preview.thumbnailUrl) {
-        ImageRequest.Builder(context)
-            .data(preview.thumbnailUrl)
-            .crossfade(true)
-            .build()
-    }
+    val request =
+        remember(preview.thumbnailUrl) {
+            ImageRequest
+                .Builder(context)
+                .data(preview.thumbnailUrl)
+                .crossfade(true)
+                .build()
+        }
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 88.dp, height = 50.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            AsyncImage(request, contentDescription = "Миниатюра видео", modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                placeholder = painterResource(R.drawable.ic_thumbnail_placeholder), error = painterResource(R.drawable.ic_thumbnail_placeholder))
+        Box(
+            Modifier
+                .size(
+                    width = 88.dp,
+                    height = 50.dp,
+                ).clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                request,
+                contentDescription = "Миниатюра видео",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                placeholder = painterResource(R.drawable.ic_thumbnail_placeholder),
+                error = painterResource(R.drawable.ic_thumbnail_placeholder),
+            )
             preview.durationSeconds?.let { seconds ->
-                Surface(Modifier.align(Alignment.BottomEnd).padding(3.dp), color = Color.Black.copy(alpha = 0.78f), shape = RoundedCornerShape(4.dp)) {
-                    val duration = if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60) else "%d:%02d".format(seconds / 60, seconds % 60)
-                    Text(duration, Modifier.padding(horizontal = 4.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
+                Surface(
+                    Modifier.align(Alignment.BottomEnd).padding(3.dp),
+                    color = Color.Black.copy(alpha = 0.78f),
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    val duration =
+                        if (seconds >=
+                            3600
+                        ) {
+                            "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
+                        } else {
+                            "%d:%02d".format(
+                                seconds / 60,
+                                seconds % 60,
+                            )
+                        }
+                    Text(
+                        duration,
+                        Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
                 }
             }
         }
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(preview.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                source,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -473,7 +950,14 @@ private fun QualityChoiceHeader(preview: VideoPreview, source: String) {
 @Composable
 private fun QualityHeaderFallback(source: String) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 88.dp, height = 50.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+        Box(
+            Modifier
+                .size(
+                    width = 88.dp,
+                    height = 50.dp,
+                ).clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text("Сведения недоступны", style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
@@ -482,15 +966,36 @@ private fun QualityHeaderFallback(source: String) {
 }
 
 @Composable
-private fun QualityHeaderSkeleton(source: String, slowSearch: Boolean, onCancel: () -> Unit) {
+private fun QualityHeaderSkeleton(
+    source: String,
+    slowSearch: Boolean,
+    onCancel: () -> Unit,
+) {
     val transition = rememberInfiniteTransition(label = "choice header shimmer")
-    val alpha by transition.animateFloat(0.35f, 0.85f, animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "header alpha")
+    val alpha by transition.animateFloat(
+        0.35f,
+        0.85f,
+        animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+        label = "header alpha",
+    )
     val shimmer = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(width = 88.dp, height = 50.dp).clip(RoundedCornerShape(12.dp)).background(shimmer))
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth(0.82f).height(18.dp).clip(RoundedCornerShape(6.dp)).background(shimmer))
-            Box(Modifier.fillMaxWidth(0.55f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(shimmer))
+            Box(
+                Modifier
+                    .fillMaxWidth(0.82f)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(shimmer),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.55f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(shimmer),
+            )
         }
     }
     if (slowSearch) {
@@ -506,62 +1011,139 @@ private fun QualityHeaderSkeleton(source: String, slowSearch: Boolean, onCancel:
 @Composable
 private fun QualityCardSkeleton() {
     val transition = rememberInfiniteTransition(label = "choice cards shimmer")
-    val alpha by transition.animateFloat(0.35f, 0.8f, animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "cards alpha")
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
-        .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    val alpha by transition.animateFloat(
+        0.35f,
+        0.8f,
+        animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+        label = "cards alpha",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(
+                min = 64.dp,
+            ).clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(Modifier.size(24.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant))
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth(0.45f).height(14.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.outlineVariant))
-            Box(Modifier.fillMaxWidth(0.68f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.outlineVariant))
+            Box(
+                Modifier
+                    .fillMaxWidth(
+                        0.45f,
+                    ).height(14.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(
+                        0.68f,
+                    ).height(12.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
         }
-        Box(Modifier.width(46.dp).height(14.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.outlineVariant))
+        Box(
+            Modifier
+                .width(46.dp)
+                .height(14.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.outlineVariant),
+        )
     }
 }
 
 internal const val DEFAULT_SAVE_FOLDER_LABEL = "Фото, видео и музыка · папка «Скачай»"
 
 @Composable
-private fun AdvancedFormatRow(preview: VideoPreview, format: AvailableFormat, selected: Boolean, onClick: () -> Unit) {
+private fun AdvancedFormatRow(
+    preview: VideoPreview,
+    format: AvailableFormat,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val compatible = isGalleryCompatible(format)
     val bitrate = if (format.hasVideo) format.videoBitrate else format.audioBitrate
-    val estimatedSize = format.sizeBytes ?: preview.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
-        bitrate?.toLong()?.times(125L)?.times(seconds.toLong())
-    }
-    val technical = buildList {
-        format.fps?.let { add("$it к/с") }
-        add(codecFamily(format))
-        add(format.extension.uppercase(Locale.ROOT))
-    }
+    val estimatedSize =
+        format.sizeBytes ?: preview.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
+            bitrate?.toLong()?.times(125L)?.times(seconds.toLong())
+        }
+    val technical =
+        buildList {
+            format.fps?.let { add("$it к/с") }
+            add(codecFamily(format))
+            add(format.extension.uppercase(Locale.ROOT))
+        }
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+        border =
+            BorderStroke(
+                if (selected) 1.5.dp else 1.dp,
+                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            ),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = selected, onClick = null)
             Column(Modifier.weight(1f).padding(start = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(technical.joinToString(" · "), style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    technical.joinToString(" · "),
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(formatAdvancedBitrateRu(bitrate), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                Text(if (compatible) "Работает везде" else "Может не воспроизводиться в галерее", style = MaterialTheme.typography.labelSmall,
-                    color = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (compatible) "Работает везде" else "Может не воспроизводиться в галерее",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (compatible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Text(formatAdvancedSizeRu(estimatedSize), style = MaterialTheme.typography.labelMedium, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+            Text(
+                formatAdvancedSizeRu(estimatedSize),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 6.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun AdvancedSubtitles(preview: VideoPreview, subtitleLanguage: String?, subtitleAutomatic: Boolean, onSubtitleChanged: (String?, Boolean) -> Unit) {
+private fun AdvancedSubtitles(
+    preview: VideoPreview,
+    subtitleLanguage: String?,
+    subtitleAutomatic: Boolean,
+    onSubtitleChanged: (String?, Boolean) -> Unit,
+) {
     Column {
         AdvancedOptionRow("Без субтитров", subtitleLanguage == null) { onSubtitleChanged(null, false) }
         preview.subtitles.forEach { track ->
-            if (track.manual) AdvancedOptionRow("${subtitleLanguageName(track.language)} · авторские", subtitleLanguage == track.language && !subtitleAutomatic) {
-                onSubtitleChanged(track.language, false)
+            if (track.manual) {
+                AdvancedOptionRow(
+                    "${subtitleLanguageName(track.language)} · авторские",
+                    subtitleLanguage == track.language && !subtitleAutomatic,
+                ) {
+                    onSubtitleChanged(track.language, false)
+                }
             }
-            if (track.automatic) AdvancedOptionRow("${subtitleLanguageName(track.language)} · автоматические", subtitleLanguage == track.language && subtitleAutomatic) {
-                onSubtitleChanged(track.language, true)
+            if (track.automatic) {
+                AdvancedOptionRow(
+                    "${subtitleLanguageName(track.language)} · автоматические",
+                    subtitleLanguage == track.language && subtitleAutomatic,
+                ) {
+                    onSubtitleChanged(track.language, true)
+                }
             }
         }
     }
@@ -573,23 +1155,52 @@ private fun subtitleLanguageName(language: String): String {
 }
 
 @Composable
-private fun AdvancedOptionRow(title: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, onClick = onClick).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun AdvancedOptionRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .selectable(selected, onClick = onClick)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         RadioButton(selected = selected, onClick = null)
         Text(title, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
-private fun AdvancedSwitchRow(title: String, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(checked, enabled = enabled, onClick = { onCheckedChange(!checked) }).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun AdvancedSwitchRow(
+    title: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .selectable(checked, enabled = enabled, onClick = {
+                onCheckedChange(!checked)
+            })
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(checked = checked, enabled = enabled, onCheckedChange = null)
     }
 }
 
 @Composable
-private fun FileNameField(value: String, invalid: Boolean, onChange: (String) -> Unit) {
+private fun FileNameField(
+    value: String,
+    invalid: Boolean,
+    onChange: (String) -> Unit,
+) {
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = { onChange(it.take(256)) },
@@ -606,40 +1217,81 @@ internal enum class ChoicePreviewVariant { LOADED, LOADING, LONG_TITLE, AUDIO, A
 @Composable
 internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVariant.LOADED) {
     val longTitle = variant == ChoicePreviewVariant.LONG_TITLE
-    val sample = remember(longTitle) {
-        VideoPreview(
-            title = if (longTitle) "Очень длинное название ролика о поездке по красивым местам России и подготовке к путешествию" else "Путешествие по Карелии",
-            author = "Канал автора",
-            durationSeconds = 245,
-            thumbnailUrl = null,
-            formats = listOf(
-                AvailableFormat("2160", "mp4", "avc1.640028", null, 2160, 30, null, 220_000_000, videoBitrate = 12_000),
-                AvailableFormat("1080", "mp4", "avc1.640028", null, 1080, 30, null, 90_000_000, videoBitrate = 4_000),
-                AvailableFormat("720", "mp4", "avc1.4d401f", null, 720, 30, null, 30_000_000, videoBitrate = 2_500),
-                AvailableFormat("720-vp9", "webm", "vp09.00.40.08", null, 720, 60, null, 40_000_000, videoBitrate = 4_000),
-                AvailableFormat("360", "mp4", "avc1.4d401e", null, 360, 30, null, 10_000_000, videoBitrate = 700),
-                AvailableFormat("m4a", "m4a", null, "mp4a.40.2", null, null, 128, 4_000_000),
-            ),
-            subtitles = listOf(SubtitleTrack("ru", manual = true, automatic = true)),
-        )
-    }
+    val sample =
+        remember(longTitle) {
+            VideoPreview(
+                title =
+                    if (longTitle) {
+                        "Очень длинное название ролика о поездке по красивым местам России и подготовке к путешествию"
+                    } else {
+                        "Путешествие по Карелии"
+                    },
+                author = "Канал автора",
+                durationSeconds = 245,
+                thumbnailUrl = null,
+                formats =
+                    listOf(
+                        AvailableFormat("2160", "mp4", "avc1.640028", null, 2160, 30, null, 220_000_000, videoBitrate = 12_000),
+                        AvailableFormat("1080", "mp4", "avc1.640028", null, 1080, 30, null, 90_000_000, videoBitrate = 4_000),
+                        AvailableFormat("720", "mp4", "avc1.4d401f", null, 720, 30, null, 30_000_000, videoBitrate = 2_500),
+                        AvailableFormat("720-vp9", "webm", "vp09.00.40.08", null, 720, 60, null, 40_000_000, videoBitrate = 4_000),
+                        AvailableFormat("360", "mp4", "avc1.4d401e", null, 360, 30, null, 10_000_000, videoBitrate = 700),
+                        AvailableFormat("m4a", "m4a", null, "mp4a.40.2", null, null, 128, 4_000_000),
+                    ),
+                subtitles = listOf(SubtitleTrack("ru", manual = true, automatic = true)),
+            )
+        }
     val loading = variant == ChoicePreviewVariant.LOADING
-    val selection = remember(variant) { FormatSelection(qualityPreset = Quality.P720, audio = variant == ChoicePreviewVariant.AUDIO, audioExport = AudioExport.SOURCE) }
+    val selection =
+        remember(variant) {
+            FormatSelection(qualityPreset = Quality.P720, audio = variant == ChoicePreviewVariant.AUDIO, audioExport = AudioExport.SOURCE)
+        }
     val selected = remember(selection) { FormatSelectionResolver.resolve(sample.formats, selection) }
     SkachayPreview {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f)) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
-                Surface(Modifier.fillMaxWidth().fillMaxSize(0.92f), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = MaterialTheme.colorScheme.surface) {
+                Surface(
+                    Modifier.fillMaxWidth().fillMaxSize(0.92f),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
                     Column {
-                        Box(Modifier.padding(top = 10.dp).size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant).align(Alignment.CenterHorizontally))
+                        Box(
+                            Modifier
+                                .padding(
+                                    top = 10.dp,
+                                ).size(
+                                    width = 32.dp,
+                                    height = 4.dp,
+                                ).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.outlineVariant)
+                                .align(Alignment.CenterHorizontally),
+                        )
                         QualityChoiceSheetContent(
-                            preview = sample.takeUnless { loading }, source = "YouTube", loading = loading, slowSearch = false, errorMessage = null,
-                            advancedMode = true, selection = selection, selectedFormat = selected, rememberChoice = false,
-                            estimatedSizeBytes = FormatSelectionResolver.estimateBytes(sample, selection), downloadEnabled = !loading,
-                            fileName = "", fileNameInvalid = false, saveFolderLabel = DEFAULT_SAVE_FOLDER_LABEL,
-                            onSelectionChanged = {}, onFormatSelected = {}, onRememberChoiceChanged = {}, onFileNameChanged = {},
-                            onChooseSaveFolder = {}, onResetSaveFolder = {}, onSubtitleChanged = { _, _ -> }, onDownload = {},
-                            initiallyAdvancedExpanded = variant == ChoicePreviewVariant.ADVANCED, onCancel = {},
+                            preview = sample.takeUnless { loading },
+                            source = "YouTube",
+                            loading = loading,
+                            slowSearch = false,
+                            errorMessage = null,
+                            advancedMode = true,
+                            selection = selection,
+                            selectedFormat = selected,
+                            rememberChoice = false,
+                            estimatedSizeBytes = FormatSelectionResolver.estimateBytes(sample, selection),
+                            downloadEnabled = !loading,
+                            fileName = "",
+                            fileNameInvalid = false,
+                            saveFolderLabel = DEFAULT_SAVE_FOLDER_LABEL,
+                            onSelectionChanged = {},
+                            onFormatSelected = {},
+                            onRememberChoiceChanged = {},
+                            onFileNameChanged = {},
+                            onChooseSaveFolder = {},
+                            onResetSaveFolder = {},
+                            onSubtitleChanged = { _, _ -> },
+                            onDownload = {},
+                            initiallyAdvancedExpanded = variant == ChoicePreviewVariant.ADVANCED,
+                            onCancel = {},
                         )
                     }
                 }

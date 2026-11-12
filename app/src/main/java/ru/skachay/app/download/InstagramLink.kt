@@ -1,10 +1,10 @@
 package ru.skachay.app.download
 
 import com.google.re2j.Pattern
+import ru.skachay.app.recipes.RecipeRegistry
 import java.net.URI
 import java.net.URISyntaxException
 import java.util.Locale
-import ru.skachay.app.recipes.RecipeRegistry
 
 object InstagramLink {
     fun canonical(url: String): String? = shortcode(url)?.let { "https://www.instagram.com/p/$it/" }
@@ -33,7 +33,12 @@ object InstagramLink {
 
     private fun parse(url: String): URI? {
         if (url.length > 2048) return null
-        val uri = try { URI(url) } catch (_: URISyntaxException) { return null }
+        val uri =
+            try {
+                URI(url)
+            } catch (_: URISyntaxException) {
+                return null
+            }
         val scheme = uri.scheme?.lowercase(Locale.ROOT)
         return uri.takeIf {
             scheme in listOf("http", "https") && it.userInfo == null &&

@@ -7,11 +7,12 @@ import org.junit.Test
 import ru.skachay.app.download.ResolvedMedia
 
 class SocialPreviewCodecTest {
-    private val items = listOf(
-        ResolvedMedia("https://example.com/first.jpg", ResolvedMedia.Kind.IMAGE, mapOf("User-Agent" to "agent")),
-        ResolvedMedia("https://example.com/second.mp4", ResolvedMedia.Kind.VIDEO, mapOf("Cookie" to "session=value")),
-        ResolvedMedia("https://example.com/third.jpg", ResolvedMedia.Kind.IMAGE),
-    )
+    private val items =
+        listOf(
+            ResolvedMedia("https://example.com/first.jpg", ResolvedMedia.Kind.IMAGE, mapOf("User-Agent" to "agent")),
+            ResolvedMedia("https://example.com/second.mp4", ResolvedMedia.Kind.VIDEO, mapOf("Cookie" to "session=value")),
+            ResolvedMedia("https://example.com/third.jpg", ResolvedMedia.Kind.IMAGE),
+        )
     private val source = "a".repeat(64)
     private val id = "7d881574-6b36-4d72-a3bb-86d813b8845a"
 
@@ -36,7 +37,7 @@ class SocialPreviewCodecTest {
         assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, privateAddress), source, 10_000L))
         val cleartext = items.toMutableList().apply { this[0] = this[0].copy(url = "http://example.com/a.jpg") }
         assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, cleartext), source, 10_000L))
-        val brokenHeader = items.toMutableList().apply { this[0] = this[0].copy(headers = mapOf("Cookie" to "x\r\ny")) }
+        val brokenHeader = items.toMutableList().apply { this[0] = this[0].copy(headers = mapOf("Referer" to "x\r\ny")) }
         assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, brokenHeader), source, 10_000L))
     }
 

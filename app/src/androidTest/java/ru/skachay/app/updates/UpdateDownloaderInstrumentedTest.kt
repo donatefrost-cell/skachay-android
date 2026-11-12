@@ -2,17 +2,17 @@ package ru.skachay.app.updates
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class UpdateDownloaderInstrumentedTest {
@@ -35,7 +35,9 @@ class UpdateDownloaderInstrumentedTest {
         File(context.cacheDir, "updates/update.apk").delete()
     }
 
-    private class LocalApkServer(private val file: File) : AutoCloseable {
+    private class LocalApkServer(
+        private val file: File,
+    ) : AutoCloseable {
         private val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
         private val executor = Executors.newSingleThreadExecutor()
         val port: Int = server.localPort
@@ -43,7 +45,12 @@ class UpdateDownloaderInstrumentedTest {
         init {
             executor.execute {
                 while (!server.isClosed) {
-                    val socket = try { server.accept() } catch (_: SocketException) { break }
+                    val socket =
+                        try {
+                            server.accept()
+                        } catch (_: SocketException) {
+                            break
+                        }
                     socket.use { connection ->
                         val reader = connection.getInputStream().bufferedReader(Charsets.US_ASCII)
                         var range = false

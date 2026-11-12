@@ -6,7 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReleaseFetcherTest {
-    private val releaseJson = """{"tag_name":"v1.0","draft":false,"prerelease":false,"assets":[{"name":"app-release.apk","browser_download_url":"https://github.com/donatefrost-cell/skachay-android/releases/download/v1.0/app-release.apk","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
+    private val releaseJson =
+        """
+        {
+          "tag_name": "v1.0",
+          "draft": false,
+          "prerelease": false,
+          "assets": [{
+            "name": "app-release.apk",
+            "browser_download_url": "https://github.com/donatefrost-cell/skachay-android/releases/download/v1.0/app-release.apk",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }]
+        }
+        """.trimIndent()
 
     @Test
     fun readsAvailableReleaseAndReportsUnavailableOrCurrentVersions() {

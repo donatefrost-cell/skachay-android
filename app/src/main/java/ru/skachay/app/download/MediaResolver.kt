@@ -1,6 +1,10 @@
 package ru.skachay.app.download
 
-data class ResolvedMedia(val url: String, val type: Kind, val headers: Map<String, String> = emptyMap()) {
+data class ResolvedMedia(
+    val url: String,
+    val type: Kind,
+    val headers: Map<String, String> = emptyMap(),
+) {
     enum class Kind { IMAGE, VIDEO, AUDIO }
 }
 

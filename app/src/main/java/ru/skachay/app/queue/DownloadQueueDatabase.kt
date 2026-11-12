@@ -49,26 +49,58 @@ internal interface DownloadQueueDao {
     @Query("SELECT * FROM download_queue WHERE status IN ('QUEUED', 'RUNNING', 'PAUSED', 'FAILED') ORDER BY createdAt ASC")
     suspend fun getRecoverable(): List<DownloadQueueEntry>
 
-    @Query("UPDATE download_queue SET status = 'FAILED', error = 'Загрузка была прервана. Нажмите «Повторить».', updatedAt = :updatedAt WHERE status IN ('QUEUED', 'RUNNING')")
+    @Query(
+        "UPDATE download_queue SET status = 'FAILED', error = 'Загрузка была прервана. Нажмите «Повторить».', updatedAt = :updatedAt WHERE status IN ('QUEUED', 'RUNNING')",
+    )
     suspend fun markInterrupted(updatedAt: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: DownloadQueueEntry)
 
     @Query("UPDATE download_queue SET status = :status, updatedAt = :updatedAt, error = :error WHERE id = :id")
-    suspend fun setStatus(id: Int, status: String, updatedAt: Long, error: String? = null)
+    suspend fun setStatus(
+        id: Int,
+        status: String,
+        updatedAt: Long,
+        error: String? = null,
+    )
 
-    @Query("UPDATE download_queue SET percent = :percent, bytesReceived = :bytesReceived, totalBytes = :totalBytes, speedBytesPerSecond = :speed, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateProgress(id: Int, percent: Int?, bytesReceived: Long, totalBytes: Long?, speed: Long?, updatedAt: Long)
+    @Query(
+        "UPDATE download_queue SET percent = :percent, bytesReceived = :bytesReceived, totalBytes = :totalBytes, speedBytesPerSecond = :speed, updatedAt = :updatedAt WHERE id = :id",
+    )
+    suspend fun updateProgress(
+        id: Int,
+        percent: Int?,
+        bytesReceived: Long,
+        totalBytes: Long?,
+        speed: Long?,
+        updatedAt: Long,
+    )
 
     @Query("UPDATE download_queue SET title = :title, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateTitle(id: Int, title: String, updatedAt: Long)
+    suspend fun updateTitle(
+        id: Int,
+        title: String,
+        updatedAt: Long,
+    )
 
-    @Query("UPDATE download_queue SET status = 'QUEUED', percent = NULL, bytesReceived = 0, totalBytes = NULL, speedBytesPerSecond = NULL, resultUri = NULL, error = NULL, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun restart(id: Int, updatedAt: Long)
+    @Query(
+        "UPDATE download_queue SET status = 'QUEUED', percent = NULL, bytesReceived = 0, totalBytes = NULL, speedBytesPerSecond = NULL, resultUri = NULL, error = NULL, updatedAt = :updatedAt WHERE id = :id",
+    )
+    suspend fun restart(
+        id: Int,
+        updatedAt: Long,
+    )
 
-    @Query("UPDATE download_queue SET status = 'COMPLETE', resultUri = :resultUri, title = :title, percent = 100, updatedAt = :updatedAt, error = NULL WHERE id = :id")
-    suspend fun setComplete(id: Int, resultUri: String?, title: String, updatedAt: Long)
+    @Query(
+        "UPDATE download_queue SET status = 'COMPLETE', resultUri = :resultUri, title = :title, percent = 100, updatedAt = :updatedAt, error = NULL WHERE id = :id",
+    )
+    suspend fun setComplete(
+        id: Int,
+        resultUri: String?,
+        title: String,
+        updatedAt: Long,
+    )
 
     @Query("DELETE FROM download_queue WHERE id = :id")
     suspend fun delete(id: Int)
@@ -84,10 +116,12 @@ internal abstract class DownloadQueueDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: DownloadQueueDatabase? = null
 
-        fun get(context: Context): DownloadQueueDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, DownloadQueueDatabase::class.java, "download-queue.db")
-                .build()
-                .also { instance = it }
-        }
+        fun get(context: Context): DownloadQueueDatabase =
+            instance ?: synchronized(this) {
+                instance ?: Room
+                    .databaseBuilder(context.applicationContext, DownloadQueueDatabase::class.java, "download-queue.db")
+                    .build()
+                    .also { instance = it }
+            }
     }
 }

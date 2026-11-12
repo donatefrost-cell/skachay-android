@@ -5,26 +5,28 @@ import android.content.Context
 import android.os.Build
 import android.os.StrictMode
 import android.util.Log
-import coil3.ImageLoader
-import coil3.SingletonImageLoader
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import ru.skachay.app.download.YtDlpRuntime
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import ru.skachay.app.choice.createThumbnailImageLoader
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.queue.DownloadQueueDatabase
 import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
 import ru.skachay.app.updates.UpdateWorker
-import ru.skachay.app.diagnostics.DiagnosticsStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import ru.skachay.app.queue.DownloadQueueDatabase
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-class SkachayApp : Application(), SingletonImageLoader.Factory {
+class SkachayApp :
+    Application(),
+    SingletonImageLoader.Factory {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
 
     override fun newImageLoader(context: Context): ImageLoader = createThumbnailImageLoader(context)
@@ -42,13 +44,17 @@ class SkachayApp : Application(), SingletonImageLoader.Factory {
                 }
             }.onFailure { Log.w("Skachay", "Не удалось восстановить очередь после перезапуска: ${it.javaClass.simpleName}") }
         }
-        val recipes = PeriodicWorkRequest.Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
+        val recipes =
+            PeriodicWorkRequest
+                .Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("recipe-update", ExistingPeriodicWorkPolicy.KEEP, recipes)
-        val updates = PeriodicWorkRequest.Builder(UpdateWorker::class.java, 1, TimeUnit.DAYS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
+        val updates =
+            PeriodicWorkRequest
+                .Builder(UpdateWorker::class.java, 1, TimeUnit.DAYS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("app-update", ExistingPeriodicWorkPolicy.KEEP, updates)
         maintenance.execute {
             try {
@@ -68,9 +74,16 @@ class SkachayApp : Application(), SingletonImageLoader.Factory {
 
     private fun enableDebugStrictMode() {
         if (!BuildConfig.DEBUG) return
-        StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build())
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy
+                .Builder()
+                .detectAll()
+                .penaltyLog()
+                .build(),
+        )
         StrictMode.setVmPolicy(
-            StrictMode.VmPolicy.Builder()
+            StrictMode.VmPolicy
+                .Builder()
                 .detectLeakedClosableObjects()
                 .detectLeakedRegistrationObjects()
                 .detectActivityLeaks()

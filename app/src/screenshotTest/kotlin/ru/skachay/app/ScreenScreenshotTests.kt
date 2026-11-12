@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app
 
 import android.content.res.Configuration
@@ -76,81 +78,225 @@ fun SettingsLargeModeScreenshot() = SettingsLargeModePreview()
 
 @PreviewTest
 @Preview(name = "Настройки · режим · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · режим · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · режим · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · режим · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · режим · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · режим · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · режим · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · режим · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · режим · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsModeScreenshot() = SettingsCardPreview(SettingsPreviewSection.MODE)
 
 @PreviewTest
 @Preview(name = "Настройки · качество · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · качество · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · качество · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · качество · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · качество · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · качество · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · качество · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · качество · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · качество · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsQualityScreenshot() = SettingsCardPreview(SettingsPreviewSection.QUALITY)
 
 @PreviewTest
 @Preview(name = "Настройки · скачивание · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · скачивание · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · скачивание · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · скачивание · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · скачивание · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · скачивание · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · скачивание · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · скачивание · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · скачивание · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsDownloadScreenshot() = SettingsCardPreview(SettingsPreviewSection.DOWNLOADS)
 
 @PreviewTest
 @Preview(name = "Настройки · файлы · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · файлы · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · файлы · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · файлы · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · файлы · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · файлы · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · файлы · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · файлы · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · файлы · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsFilesScreenshot() = SettingsCardPreview(SettingsPreviewSection.FILES)
 
 @PreviewTest
 @Preview(name = "Настройки · движок · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · движок · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · движок · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · движок · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · движок · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · движок · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · движок · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · движок · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · движок · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsEngineScreenshot() = SettingsCardPreview(SettingsPreviewSection.ENGINE)
 
 @PreviewTest
 @Preview(name = "Настройки · память и история · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · память и история · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · память и история · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · память и история · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · память и история · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · память и история · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · память и история · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · память и история · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · память и история · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsStorageScreenshot() = SettingsCardPreview(SettingsPreviewSection.STORAGE)
 
 @PreviewTest
 @Preview(name = "Настройки · удобство · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · удобство · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · удобство · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · удобство · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · удобство · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · удобство · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · удобство · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · удобство · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · удобство · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsConvenienceScreenshot() = SettingsCardPreview(SettingsPreviewSection.CONVENIENCE)
 
 @PreviewTest
 @Preview(name = "Настройки · о приложении · 100%", fontScale = 1f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · о приложении · тёмная · 100%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · о приложении · тёмная · 100%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · о приложении · 150%", fontScale = 1.5f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · о приложении · тёмная · 150%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · о приложении · тёмная · 150%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 1.5f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Preview(name = "Настройки · о приложении · 200%", fontScale = 2f, widthDp = 430, heightDp = 1000)
-@Preview(name = "Настройки · о приложении · тёмная · 200%", uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 2f, widthDp = 430, heightDp = 1000)
+@Preview(
+    name = "Настройки · о приложении · тёмная · 200%",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    fontScale = 2f,
+    widthDp = 430,
+    heightDp = 1000,
+)
 @Composable
 fun SettingsAboutScreenshot() = SettingsCardPreview(SettingsPreviewSection.ABOUT)
 

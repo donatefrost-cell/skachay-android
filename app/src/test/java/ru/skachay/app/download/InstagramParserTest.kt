@@ -15,7 +15,19 @@ class InstagramParserTest {
 
     @Test
     fun extractsAllItemsInMixedCarouselWithoutVideoThumbnails() {
-        val html = """<script>{"edge_sidecar_to_children":{"edges":[{"node":{"is_video":false,"display_url":"https:\/\/cdn.example\/photo.jpg?x=1\u0026y=2"}},{"node":{"is_video":true,"display_url":"https:\/\/cdn.example\/cover.jpg","video_url":"https:\/\/cdn.example\/video.mp4"}}]}}</script>"""
+        val html =
+            """
+            <script>
+            {
+              "edge_sidecar_to_children": {
+                "edges": [
+                  {"node": {"is_video": false, "display_url": "https:\/\/cdn.example\/photo.jpg?x=1\u0026y=2"}},
+                  {"node": {"is_video": true, "display_url": "https:\/\/cdn.example\/cover.jpg", "video_url": "https:\/\/cdn.example\/video.mp4"}}
+                ]
+              }
+            }
+            </script>
+            """.trimIndent()
         val media = InstagramParser.parse(html)
         assertEquals(listOf("https://cdn.example/photo.jpg?x=1&y=2", "https://cdn.example/video.mp4"), media.map { it.url })
         assertEquals(listOf(ResolvedMedia.Kind.IMAGE, ResolvedMedia.Kind.VIDEO), media.map { it.type })

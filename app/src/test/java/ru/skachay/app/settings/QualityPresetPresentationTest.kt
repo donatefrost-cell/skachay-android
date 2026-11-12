@@ -30,7 +30,7 @@ class QualityPresetPresentationTest {
     @Test
     fun bitrateStopsShowTheRequiredCaptionsInAscendingOrder() {
         assertEquals(
-            listOf("1", "2", "4", "8", "16 Мбит/с", "Макс"),
+            listOf("1", "2", "4", "8", "16\u00a0Мбит/с", "Макс"),
             VideoBitrateLimit.stops.map { it.stopCaption },
         )
     }

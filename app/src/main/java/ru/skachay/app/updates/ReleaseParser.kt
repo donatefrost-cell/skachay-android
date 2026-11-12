@@ -1,14 +1,22 @@
 package ru.skachay.app.updates
 
-import java.net.URI
-import java.net.URISyntaxException
 import org.json.JSONException
 import org.json.JSONObject
+import java.net.URI
+import java.net.URISyntaxException
 
-data class ReleaseInfo(val tag: String, val versionCode: Int, val downloadUrl: String, val sha256: String)
+data class ReleaseInfo(
+    val tag: String,
+    val versionCode: Int,
+    val downloadUrl: String,
+    val sha256: String,
+)
 
 object ReleaseParser {
-    fun parse(json: String, currentVersion: Int): ReleaseInfo? {
+    fun parse(
+        json: String,
+        currentVersion: Int,
+    ): ReleaseInfo? {
         if (json.toByteArray(Charsets.UTF_8).size > 262_144) return null
         return try {
             val release = JSONObject(json)
@@ -40,19 +48,33 @@ object ReleaseParser {
         return value.toInt().takeIf { major <= 2099 && value in 1..2_100_000_000L }
     }
 
-    internal fun stored(tag: String, url: String, digest: String?, currentVersion: Int): ReleaseInfo? {
+    internal fun stored(
+        tag: String,
+        url: String,
+        digest: String?,
+        currentVersion: Int,
+    ): ReleaseInfo? {
         val version = versionCode(tag) ?: return null
         val sha256 = parseSha256(digest) ?: return null
         return if (version > currentVersion && trustedUrl(url, tag)) ReleaseInfo(tag, version, url, sha256) else null
     }
 
-    private fun parseSha256(value: String?): String? = value
-        ?.removePrefix("sha256:")
-        ?.takeIf { Regex("[A-Fa-f0-9]{64}").matches(it) }
-        ?.lowercase()
+    private fun parseSha256(value: String?): String? =
+        value
+            ?.removePrefix("sha256:")
+            ?.takeIf { Regex("[A-Fa-f0-9]{64}").matches(it) }
+            ?.lowercase()
 
-    private fun trustedUrl(value: String, tag: String): Boolean {
-        val uri = try { URI(value) } catch (_: URISyntaxException) { return false }
+    private fun trustedUrl(
+        value: String,
+        tag: String,
+    ): Boolean {
+        val uri =
+            try {
+                URI(value)
+            } catch (_: URISyntaxException) {
+                return false
+            }
         return uri.scheme == "https" && uri.host == "github.com" && uri.port in listOf(-1, 443) && uri.userInfo == null &&
             uri.rawPath == "/donatefrost-cell/skachay-android/releases/download/$tag/app-release.apk" &&
             uri.query == null && uri.fragment == null

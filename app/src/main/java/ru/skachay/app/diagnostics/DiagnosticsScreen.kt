@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app.diagnostics
 
 import android.content.ClipData
@@ -8,13 +10,13 @@ import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -37,11 +39,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import java.util.Locale
 import ru.skachay.app.R
-import ru.skachay.app.SkachayPreview
 import ru.skachay.app.SharedUrl
+import ru.skachay.app.SkachayPreview
 import ru.skachay.app.startDownload
+import java.util.Locale
 
 @Composable
 internal fun DiagnosticsScreen(onBack: () -> Unit) {
@@ -55,7 +57,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -78,12 +85,20 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                         }
                     }
                     DownloadStage.entries.forEach { stage ->
-                        val duration = entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) }
-                            ?: "нет данных"
+                        val duration =
+                            entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) }
+                                ?: "нет данных"
                         Text("${stage.label}: $duration", style = MaterialTheme.typography.bodyMedium)
                     }
                     entry.bytesReceived?.let { received ->
-                        val total = entry.bytesTotal?.let { " из ${android.text.format.Formatter.formatShortFileSize(context, it)}" }.orEmpty()
+                        val total =
+                            entry.bytesTotal
+                                ?.let {
+                                    " из ${android.text.format.Formatter.formatShortFileSize(
+                                        context,
+                                        it,
+                                    )}"
+                                }.orEmpty()
                         Text("Получено: ${android.text.format.Formatter.formatShortFileSize(context, received)}$total")
                     }
                     entry.averageBytesPerSecond?.let { Text("Средняя скорость: ${formatSpeed(it)}") }
@@ -94,16 +109,20 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         }
         Text("Проверить ссылку", style = MaterialTheme.typography.titleLarge)
         Text("При проверке файл будет сохранён в галерею.")
-        OutlinedTextField(value = link, onValueChange = { link = it }, label = { Text("Ссылка на видео или фото") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = link, onValueChange = {
+            link = it
+        }, label = { Text("Ссылка на видео или фото") }, modifier = Modifier.fillMaxWidth())
         Button(enabled = SharedUrl.firstIn(link) != null, onClick = {
             SharedUrl.firstIn(link)?.let { startDownload(context, it) }
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Проверить и скачать") }
         FilledTonalButton(onClick = {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText(
-                "Диагностика Скачай",
-                diagnosticLog(entries, DiagnosticsStore.recentUnhandledExceptions(context)),
-            ))
+            clipboard.setPrimaryClip(
+                ClipData.newPlainText(
+                    "Диагностика Скачай",
+                    diagnosticLog(entries, DiagnosticsStore.recentUnhandledExceptions(context)),
+                ),
+            )
             Toast.makeText(context, "Журнал скопирован", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скопировать лог") }
     }

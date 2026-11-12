@@ -6,26 +6,29 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
+import ru.skachay.app.download.DirectDownloader
+import ru.skachay.app.network.UrlNetworkPolicy
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import ru.skachay.app.download.DirectDownloader
-import ru.skachay.app.network.UrlNetworkPolicy
 
 internal class InvalidUpdateException : IOException("Update package or signature does not match")
 
-internal class UpdateDownloader(private val context: Context) {
+internal class UpdateDownloader(
+    private val context: Context,
+) {
     fun download(release: ReleaseInfo): Uri {
         val directory = File(context.cacheDir, "updates")
         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Could not create update folder")
         val temporary = File(directory, "download.apk")
         val result = File(directory, "update.apk")
         try {
-            val client = UrlNetworkPolicy.publicHttpsClient(
-                callTimeoutSeconds = 60 * 60,
-                allowedRedirectHostSuffixes = setOf("github.com", "githubusercontent.com"),
-            )
+            val client =
+                UrlNetworkPolicy.publicHttpsClient(
+                    callTimeoutSeconds = 60 * 60,
+                    allowedRedirectHostSuffixes = setOf("github.com", "githubusercontent.com"),
+                )
             DirectDownloader(client).download(release.downloadUrl, temporary, connections = 4)
             if (!ArchiveValidation.matchesSha256(ArchiveValidation.sha256(temporary), release.sha256)) throw InvalidUpdateException()
             if (!validateArchive(temporary, release.versionCode)) throw InvalidUpdateException()
@@ -37,7 +40,10 @@ internal class UpdateDownloader(private val context: Context) {
     }
 
     @Suppress("DEPRECATION")
-    internal fun validateArchive(file: File, expectedVersion: Int): Boolean {
+    internal fun validateArchive(
+        file: File,
+        expectedVersion: Int,
+    ): Boolean {
         val manager = context.packageManager
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
         val archive = manager.getPackageArchiveInfo(file.absolutePath, flags) ?: return false
@@ -57,5 +63,4 @@ internal class UpdateDownloader(private val context: Context) {
         val values = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
         return values?.map { it.toCharsString() }.orEmpty()
     }
-
 }

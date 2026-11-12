@@ -1,7 +1,7 @@
 package ru.skachay.app.network
 
-import java.io.ByteArrayOutputStream
 import okhttp3.ResponseBody
+import java.io.ByteArrayOutputStream
 
 internal fun ResponseBody.readUtf8Bounded(maxBytes: Int): String? {
     if (contentLength() > maxBytes) return null

@@ -33,10 +33,12 @@ internal object StorageUsage {
     }
 
     private fun deleteWithoutFollowingLinks(file: File): Boolean {
-        if (Files.isSymbolicLink(file.toPath())) return try {
-            file.delete() || !Files.isSymbolicLink(file.toPath())
-        } catch (_: SecurityException) {
-            false
+        if (Files.isSymbolicLink(file.toPath())) {
+            return try {
+                file.delete() || !Files.isSymbolicLink(file.toPath())
+            } catch (_: SecurityException) {
+                false
+            }
         }
         if (!file.exists()) return true
         if (!file.isDirectory) return file.delete() || !file.exists()

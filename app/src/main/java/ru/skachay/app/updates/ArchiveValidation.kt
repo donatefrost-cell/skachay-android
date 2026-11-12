@@ -17,10 +17,16 @@ internal object ArchiveValidation {
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
-    fun matchesSha256(actualHex: String, expected: String): Boolean {
+    fun matchesSha256(
+        actualHex: String,
+        expected: String,
+    ): Boolean {
         val actual = actualHex.lowercase().takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return false
-        val expectedHex = expected.removePrefix("sha256:").lowercase()
-            .takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return false
+        val expectedHex =
+            expected
+                .removePrefix("sha256:")
+                .lowercase()
+                .takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return false
         return actual == expectedHex
     }
 
@@ -31,6 +37,7 @@ internal object ArchiveValidation {
         archiveVersion: Int,
         installedSigners: List<String>,
         archiveSigners: List<String>,
-    ): Boolean = expectedPackage == archivePackage && expectedVersion == archiveVersion &&
-        installedSigners.isNotEmpty() && installedSigners.toSet() == archiveSigners.toSet()
+    ): Boolean =
+        expectedPackage == archivePackage && expectedVersion == archiveVersion &&
+            installedSigners.isNotEmpty() && installedSigners.toSet() == archiveSigners.toSet()
 }

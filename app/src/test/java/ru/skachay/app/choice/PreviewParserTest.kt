@@ -3,6 +3,7 @@ package ru.skachay.app.choice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PreviewParserTest {
@@ -44,7 +45,14 @@ class PreviewParserTest {
     @Test
     fun ignoresLargeUnrelatedCaptionData() {
         val captions = "x".repeat(1_000_000)
-        val json = """{"automatic_captions":{"unused":"$captions"},"title":"Видео","formats":[{"format_id":"18","ext":"mp4","vcodec":"avc1","acodec":"mp4a"}]}"""
+        val json =
+            """
+            {
+              "automatic_captions": {"unused": "$captions"},
+              "title": "Видео",
+              "formats": [{"format_id": "18", "ext": "mp4", "vcodec": "avc1", "acodec": "mp4a"}]
+            }
+            """.trimIndent()
         val preview = PreviewParser.parse(json)!!
         assertEquals("Видео", preview.title)
         assertEquals("18", preview.formats.single().id)
@@ -52,7 +60,20 @@ class PreviewParserTest {
 
     @Test
     fun preservesSafeDirectStreamUrlsAndExtractorHeaders() {
-        val json = """{"title":"Видео","formats":[{"format_id":"137","ext":"mp4","vcodec":"avc1","acodec":"none","url":"https://rr1.googlevideo.com/video?sig=abc","http_headers":{"Referer":"https://www.youtube.com/","User-Agent":"Skachay test"}}]}"""
+        val json =
+            """
+            {
+              "title": "Видео",
+              "formats": [{
+                "format_id": "137",
+                "ext": "mp4",
+                "vcodec": "avc1",
+                "acodec": "none",
+                "url": "https://rr1.googlevideo.com/video?sig=abc",
+                "http_headers": {"Referer": "https://www.youtube.com/", "User-Agent": "Skachay test"}
+              }]
+            }
+            """.trimIndent()
         val format = PreviewParser.parse(json)!!.formats.single()
         assertEquals("https://rr1.googlevideo.com/video?sig=abc", format.directUrl)
         assertEquals("https://www.youtube.com/", format.httpHeaders["Referer"])
@@ -61,7 +82,19 @@ class PreviewParserTest {
 
     @Test
     fun ignoresUnsafeDirectStreamUrlsAndHeaders() {
-        val json = """{"title":"Видео","formats":[{"format_id":"137","ext":"mp4","vcodec":"avc1","url":"http://cdn.example/video","http_headers":{"Authorization":"secret"}}]}"""
+        val json =
+            """
+            {
+              "title": "Видео",
+              "formats": [{
+                "format_id": "137",
+                "ext": "mp4",
+                "vcodec": "avc1",
+                "url": "http://cdn.example/video",
+                "http_headers": {"Authorization": "secret"}
+              }]
+            }
+            """.trimIndent()
         val format = PreviewParser.parse(json)!!.formats.single()
         assertNull(format.directUrl)
         assertEquals(emptyMap<String, String>(), format.httpHeaders)
@@ -69,8 +102,31 @@ class PreviewParserTest {
 
     @Test
     fun keepsOnlyNonSensitiveExtractorHeaders() {
-        val json = """{"title":"Видео","formats":[{"format_id":"137","ext":"mp4","vcodec":"avc1","url":"https://rr1.googlevideo.com/video","http_headers":{"User-Agent":"Skachay test","Referer":"https://www.youtube.com/","Cookie":"session=secret","Authorization":"Bearer secret","Host":"evil.test"}}]}"""
-        val headers = PreviewParser.parse(json)!!.formats.single().httpHeaders
+        val json =
+            """
+            {
+              "title": "Видео",
+              "formats": [{
+                "format_id": "137",
+                "ext": "mp4",
+                "vcodec": "avc1",
+                "url": "https://rr1.googlevideo.com/video",
+                "http_headers": {
+                  "User-Agent": "Skachay test",
+                  "Referer": "https://www.youtube.com/",
+                  "Cookie": "session=secret",
+                  "Authorization": "Bearer secret",
+                  "Host": "evil.test"
+                }
+              }]
+            }
+            """.trimIndent()
+        val headers =
+            PreviewParser
+                .parse(json)!!
+                .formats
+                .single()
+                .httpHeaders
         assertEquals(mapOf("User-Agent" to "Skachay test", "Referer" to "https://www.youtube.com/"), headers)
     }
 

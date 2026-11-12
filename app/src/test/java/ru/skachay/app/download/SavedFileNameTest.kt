@@ -1,12 +1,12 @@
 package ru.skachay.app.download
 
-import java.util.concurrent.Executors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.util.concurrent.Executors
 
 class SavedFileNameTest {
     @get:Rule val temp = TemporaryFolder()

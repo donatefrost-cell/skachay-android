@@ -1,23 +1,32 @@
 package ru.skachay.app.download
 
-import java.util.ArrayDeque
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.recipes.RecipeRegistry
 import ru.skachay.app.recipes.TikTokRecipe
+import java.util.ArrayDeque
 
 object TikTokParser {
-    fun parse(html: String, id: String, recipe: TikTokRecipe = RecipeRegistry.current.tiktok): List<ResolvedMedia> {
+    fun parse(
+        html: String,
+        id: String,
+        recipe: TikTokRecipe = RecipeRegistry.current.tiktok,
+    ): List<ResolvedMedia> {
         val scripts = Regex("<script\\b([^>]*)>(.*?)</script\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val idAttribute = Regex("\\bid\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
         for (script in scripts.findAll(html)) {
             val scriptId = idAttribute.find(script.groupValues[1])?.groupValues?.get(1)
             if (scriptId !in recipe.scriptIds) continue
-            val root = try { JSONTokener(script.groupValues[2]).nextValue() } catch (_: JSONException) { continue }
+            val root =
+                try {
+                    JSONTokener(script.groupValues[2]).nextValue()
+                } catch (_: JSONException) {
+                    continue
+                }
             val item = findItem(root, id, recipe) ?: continue
             val imagePost = recipe.imagePostFields.firstNotNullOfOrNull(item::optJSONObject)
             if (imagePost != null) {
@@ -37,7 +46,11 @@ object TikTokParser {
         return emptyList()
     }
 
-    private fun findItem(root: Any, id: String, recipe: TikTokRecipe): JSONObject? {
+    private fun findItem(
+        root: Any,
+        id: String,
+        recipe: TikTokRecipe,
+    ): JSONObject? {
         val queue = ArrayDeque<Any>()
         queue.add(root)
         var visited = 0
@@ -51,26 +64,42 @@ object TikTokParser {
                         if (value is JSONObject || value is JSONArray) queue.add(value)
                     }
                 }
-                is JSONArray -> for (index in 0 until current.length()) {
-                    val value = current.opt(index)
-                    if (value is JSONObject || value is JSONArray) queue.add(value)
+
+                is JSONArray -> {
+                    for (index in 0 until current.length()) {
+                        val value = current.opt(index)
+                        if (value is JSONObject || value is JSONArray) queue.add(value)
+                    }
                 }
             }
         }
         return null
     }
 
-    private fun urlOf(value: Any?, recipe: TikTokRecipe): String? = when (value) {
-        is String -> {
-            if (value.length > MAX_MEDIA_URL_LENGTH) return null
-            val secure = value.replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
-            val parsed = secure.toHttpUrlOrNull() ?: return null
-            secure.takeIf { UrlNetworkPolicy.isSafeHttpsUrl(parsed) }
+    private fun urlOf(
+        value: Any?,
+        recipe: TikTokRecipe,
+    ): String? =
+        when (value) {
+            is String -> {
+                if (value.length > MAX_MEDIA_URL_LENGTH) return null
+                val secure = value.replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
+                val parsed = secure.toHttpUrlOrNull() ?: return null
+                secure.takeIf { UrlNetworkPolicy.isSafeHttpsUrl(parsed) }
+            }
+
+            is JSONArray -> {
+                (0 until value.length()).firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
+            }
+
+            is JSONObject -> {
+                recipe.nestedUrlFields.firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
+            }
+
+            else -> {
+                null
+            }
         }
-        is JSONArray -> (0 until value.length()).firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
-        is JSONObject -> recipe.nestedUrlFields.firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
-        else -> null
-    }
 
     private const val MAX_MEDIA_URL_LENGTH = 8192
 }

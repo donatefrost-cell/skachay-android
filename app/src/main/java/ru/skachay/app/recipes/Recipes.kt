@@ -2,7 +2,11 @@ package ru.skachay.app.recipes
 
 private const val MOBILE = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36"
 
-data class Recipes(val revision: Int = 1, val instagram: InstagramRecipe = InstagramRecipe(), val tiktok: TikTokRecipe = TikTokRecipe())
+data class Recipes(
+    val revision: Int = 1,
+    val instagram: InstagramRecipe = InstagramRecipe(),
+    val tiktok: TikTokRecipe = TikTokRecipe(),
+)
 
 data class InstagramRecipe(
     val embedEnabled: Boolean = true,
@@ -12,7 +16,9 @@ data class InstagramRecipe(
     val pageTemplate: String = "https://www.instagram.com/p/{shortcode}/",
     val mobileAgent: String = MOBILE,
     val facebookAgent: String = "facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)",
-    val iosAgent: String = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
+    val iosAgent: String =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
+            "Version/17.0 Mobile/15E148 Safari/604.1",
     val postPattern: String = "^/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$",
     val videoPattern: String = "^/(?:[A-Za-z0-9._]+/)?(?:reel|reels|tv)/[A-Za-z0-9_-]+/?$",
     val videoField: String = "video_url",

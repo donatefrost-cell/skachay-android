@@ -1,12 +1,12 @@
 package ru.skachay.app.recipes
 
-import java.io.File
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 
 class RecipeCodecTest {
     private fun defaults(): String = File("../recipe-defaults/recipes.json").readText()

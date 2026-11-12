@@ -1,11 +1,17 @@
 package ru.skachay.app.download
 
 object MediaType {
-    fun detect(header: ByteArray, url: String, audioOnly: Boolean = false): String? {
-        fun starts(vararg bytes: Int): Boolean =
-            header.size >= bytes.size && bytes.indices.all { header[it].toInt() and 0xff == bytes[it] }
-        fun textAt(offset: Int, text: String): Boolean =
-            header.size >= offset + text.length && text.indices.all { header[offset + it].toInt() == text[it].code }
+    fun detect(
+        header: ByteArray,
+        url: String,
+        audioOnly: Boolean = false,
+    ): String? {
+        fun starts(vararg bytes: Int): Boolean = header.size >= bytes.size && bytes.indices.all { header[it].toInt() and 0xff == bytes[it] }
+
+        fun textAt(
+            offset: Int,
+            text: String,
+        ): Boolean = header.size >= offset + text.length && text.indices.all { header[offset + it].toInt() == text[it].code }
 
         return when {
             starts(0xff, 0xd8, 0xff) -> "image/jpeg"

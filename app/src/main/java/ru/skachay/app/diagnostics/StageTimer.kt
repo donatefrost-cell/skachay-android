@@ -1,6 +1,8 @@
 package ru.skachay.app.diagnostics
 
-internal enum class DownloadStage(val label: String) {
+internal enum class DownloadStage(
+    val label: String,
+) {
     RUNTIME_START("Подготовка движка"),
     EXTRACTION("Получение сведений"),
     FIRST_BYTE("Ожидание первого байта"),
@@ -9,7 +11,9 @@ internal enum class DownloadStage(val label: String) {
     SAVING("Сохранение"),
 }
 
-internal class StageTimer(private val now: () -> Long) {
+internal class StageTimer(
+    private val now: () -> Long,
+) {
     private val durations = mutableMapOf<DownloadStage, Long>()
     private var current: DownloadStage? = null
     private var started = 0L
@@ -32,13 +36,17 @@ internal class StageTimer(private val now: () -> Long) {
     }
 
     @Synchronized
-    fun record(stage: DownloadStage, millis: Long) {
+    fun record(
+        stage: DownloadStage,
+        millis: Long,
+    ) {
         durations[stage] = millis.coerceAtLeast(0)
     }
 }
 
-internal fun stageFromYtDlpOutput(line: String): DownloadStage? = when {
-    line.startsWith("[download]") -> DownloadStage.TRANSFER
-    line.startsWith("[Merger]") || line.startsWith("[VideoRemuxer]") -> DownloadStage.MERGE
-    else -> null
-}
+internal fun stageFromYtDlpOutput(line: String): DownloadStage? =
+    when {
+        line.startsWith("[download]") -> DownloadStage.TRANSFER
+        line.startsWith("[Merger]") || line.startsWith("[VideoRemuxer]") -> DownloadStage.MERGE
+        else -> null
+    }

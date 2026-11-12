@@ -13,7 +13,10 @@ class ReleaseParserTest {
     ): JSONObject {
         val asset = JSONObject().put("name", "app-release.apk").put("browser_download_url", url)
         digest?.let { asset.put("digest", it) }
-        return JSONObject().put("tag_name", tag).put("draft", false).put("prerelease", false)
+        return JSONObject()
+            .put("tag_name", tag)
+            .put("draft", false)
+            .put("prerelease", false)
             .put("assets", org.json.JSONArray().put(asset))
     }
 
@@ -31,7 +34,12 @@ class ReleaseParserTest {
     fun rejectsUntrustedDownloadAddressesAndInvalidVersions() {
         assertNull(ReleaseParser.parse(release(url = "https://example.com/app-release.apk").toString(), currentVersion = 1))
         assertNull(ReleaseParser.parse(release(tag = "v1.1000").toString(), currentVersion = 1))
-        assertNull(ReleaseParser.parse(release(url = "https://github.com/other/repo/releases/download/v1.2.3/app-release.apk").toString(), currentVersion = 1))
+        assertNull(
+            ReleaseParser.parse(
+                release(url = "https://github.com/other/repo/releases/download/v1.2.3/app-release.apk").toString(),
+                currentVersion = 1,
+            ),
+        )
         assertNull(ReleaseParser.parse(release(digest = null).toString(), currentVersion = 1))
         assertNull(ReleaseParser.parse(release(digest = "sha256:1234").toString(), currentVersion = 1))
     }

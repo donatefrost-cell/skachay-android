@@ -1,6 +1,5 @@
 package ru.skachay.app.download
 
-import java.io.IOException
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -9,21 +8,30 @@ import okhttp3.Request
 import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.network.readUtf8Bounded
 import ru.skachay.app.recipes.RecipeRegistry
+import java.io.IOException
 
 class TikTokResolver : MediaResolver {
     private val cookies = SessionCookies()
-    private val client = UrlNetworkPolicy.publicHttpsClient(
-        callTimeoutSeconds = 30,
-        allowedRedirectHostSuffixes = setOf("tiktok.com"),
-    )
-        .newBuilder().cookieJar(cookies).build()
+    private val client =
+        UrlNetworkPolicy
+            .publicHttpsClient(
+                callTimeoutSeconds = 30,
+                allowedRedirectHostSuffixes = setOf("tiktok.com"),
+            ).newBuilder()
+            .cookieJar(cookies)
+            .build()
 
     override fun resolve(url: String): List<ResolvedMedia> {
         if (!TikTokLink.supports(url)) return emptyList()
         val recipe = RecipeRegistry.current.tiktok
         if (!recipe.pageEnabled) return emptyList()
-        val request = Request.Builder().url(url.toHttps()).header("User-Agent", recipe.mobileAgent)
-            .header("Referer", recipe.referer).build()
+        val request =
+            Request
+                .Builder()
+                .url(url.toHttps())
+                .header("User-Agent", recipe.mobileAgent)
+                .header("Referer", recipe.referer)
+                .build()
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return emptyList()
@@ -47,7 +55,10 @@ class TikTokResolver : MediaResolver {
         private val values = mutableListOf<Cookie>()
 
         @Synchronized
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        override fun saveFromResponse(
+            url: HttpUrl,
+            cookies: List<Cookie>,
+        ) {
             for (cookie in cookies) {
                 values.removeAll { it.name == cookie.name && it.domain == cookie.domain && it.path == cookie.path }
                 if (cookie.expiresAt > System.currentTimeMillis()) values.add(cookie)

@@ -1,11 +1,11 @@
 package ru.skachay.app.recipes
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class RecipeFetcherTest {
     @Test
@@ -24,8 +24,16 @@ class RecipeFetcherTest {
     fun remoteEndpointIsPinnedToTheOfficialHttpsRecipeFile() {
         assertTrue(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL))
         assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL.replace("https://", "http://")))
-        assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL.replace("raw.githubusercontent.com", "raw.githubusercontent.com.evil.example")))
-        assertFalse(RecipeFetcher.isAllowedEndpoint("https://user@raw.githubusercontent.com/donatefrost-cell/skachay-android/main/recipe-defaults/recipes.json"))
+        assertFalse(
+            RecipeFetcher.isAllowedEndpoint(
+                RecipeFetcher.RAW_URL.replace("raw.githubusercontent.com", "raw.githubusercontent.com.evil.example"),
+            ),
+        )
+        assertFalse(
+            RecipeFetcher.isAllowedEndpoint(
+                "https://user@raw.githubusercontent.com/donatefrost-cell/skachay-android/main/recipe-defaults/recipes.json",
+            ),
+        )
         assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL + "?redirect=https://example.com"))
         assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL.replace("recipe-defaults/recipes.json", "evil.json")))
     }

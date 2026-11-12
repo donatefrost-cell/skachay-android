@@ -10,18 +10,23 @@ object SharedUrl {
 
     fun allIn(text: String?): List<String> {
         if (text == null || text.length > MAX_SHARE_TEXT_LENGTH) return emptyList()
-        return linkPattern.findAll(text).mapNotNull { match ->
-            val candidate = trimPunctuation(match.value)
-            if (candidate.length > MAX_URL_LENGTH) return@mapNotNull null
-            val uri = try {
-                URI(candidate)
-            } catch (_: IllegalArgumentException) {
-                return@mapNotNull null
-            } catch (_: java.net.URISyntaxException) {
-                return@mapNotNull null
-            }
-            candidate.takeIf { isSupportedUrl(uri) }?.let(::upgradeToHttps)
-        }.distinct().take(MAX_LINKS).toList()
+        return linkPattern
+            .findAll(text)
+            .mapNotNull { match ->
+                val candidate = trimPunctuation(match.value)
+                if (candidate.length > MAX_URL_LENGTH) return@mapNotNull null
+                val uri =
+                    try {
+                        URI(candidate)
+                    } catch (_: IllegalArgumentException) {
+                        return@mapNotNull null
+                    } catch (_: java.net.URISyntaxException) {
+                        return@mapNotNull null
+                    }
+                candidate.takeIf { isSupportedUrl(uri) }?.let(::upgradeToHttps)
+            }.distinct()
+            .take(MAX_LINKS)
+            .toList()
     }
 
     private fun isSupportedUrl(uri: URI): Boolean {

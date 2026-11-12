@@ -1,19 +1,24 @@
 package ru.skachay.app.network
 
+import okhttp3.Dns
+import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
-import okhttp3.Dns
-import okhttp3.HttpUrl
-import okhttp3.OkHttpClient
 
 /** Redirect and DNS guard for media, update, and thumbnail requests. */
 internal object UrlNetworkPolicy {
     const val MAX_REDIRECTS = 5
 
-    fun resolveRedirect(source: HttpUrl, location: String, redirectsFollowed: Int, allowedRedirectHostSuffixes: Set<String>? = null): HttpUrl? {
+    fun resolveRedirect(
+        source: HttpUrl,
+        location: String,
+        redirectsFollowed: Int,
+        allowedRedirectHostSuffixes: Set<String>? = null,
+    ): HttpUrl? {
         if (redirectsFollowed >= MAX_REDIRECTS || !isSafeHttpsUrl(source)) return null
         val target = source.resolve(location) ?: return null
         if (!isSafeHttpsUrl(target)) return null
@@ -21,8 +26,10 @@ internal object UrlNetworkPolicy {
         return target
     }
 
-    fun hostMatchesSuffix(host: String, suffix: String): Boolean =
-        host.equals(suffix, ignoreCase = true) || host.endsWith(".$suffix", ignoreCase = true)
+    fun hostMatchesSuffix(
+        host: String,
+        suffix: String,
+    ): Boolean = host.equals(suffix, ignoreCase = true) || host.endsWith(".$suffix", ignoreCase = true)
 
     fun isSafeHttpsUrl(url: HttpUrl): Boolean {
         if (!url.isHttps || url.port != 443 || url.username.isNotEmpty() || url.password.isNotEmpty()) return false
@@ -30,7 +37,12 @@ internal object UrlNetworkPolicy {
         if (host.isBlank()) return false
         val isIpLiteral = ':' in host || host.all { it.isDigit() || it == '.' }
         if (isIpLiteral) {
-            val address = try { InetAddress.getByName(host) } catch (_: Exception) { return false }
+            val address =
+                try {
+                    InetAddress.getByName(host)
+                } catch (_: Exception) {
+                    return false
+                }
             if (!isPublicAddress(address)) return false
         }
         return true
@@ -38,7 +50,10 @@ internal object UrlNetworkPolicy {
 
     fun isPublicAddress(address: InetAddress): Boolean {
         if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-            address.isSiteLocalAddress || address.isMulticastAddress) return false
+            address.isSiteLocalAddress || address.isMulticastAddress
+        ) {
+            return false
+        }
         val bytes = address.address.map { it.toInt() and 0xff }
         if (address is Inet6Address) {
             if (bytes.size != 16) return false
@@ -61,52 +76,57 @@ internal object UrlNetworkPolicy {
         readTimeoutSeconds: Long = 45,
         writeTimeoutSeconds: Long = 45,
         allowedRedirectHostSuffixes: Set<String>? = null,
-    ): OkHttpClient = OkHttpClient.Builder()
-        .apply { callTimeoutSeconds?.let { callTimeout(it, TimeUnit.SECONDS) } }
-        .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
-        .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
-        .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .dns(Dns { hostname ->
-            val addresses = Dns.SYSTEM.lookup(hostname)
-            if (addresses.isEmpty() || addresses.any { !isPublicAddress(it) }) {
-                throw UnknownHostException("Host resolved to a non-public address")
-            }
-            addresses
-        })
-        .addInterceptor { chain ->
-            var request = chain.request()
-            repeat(MAX_REDIRECTS + 1) { hop ->
-                if (!isSafeHttpsUrl(request.url)) throw IOException("Unsafe HTTPS request URL")
-                val response = chain.proceed(request)
-                val location = response.header("Location")
-                if (!response.isRedirect || location == null) return@addInterceptor response
-                val target = resolveRedirect(request.url, location, hop, allowedRedirectHostSuffixes)
-                if (target == null) {
+    ): OkHttpClient =
+        OkHttpClient
+            .Builder()
+            .apply { callTimeoutSeconds?.let { callTimeout(it, TimeUnit.SECONDS) } }
+            .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .dns(
+                Dns { hostname ->
+                    val addresses = Dns.SYSTEM.lookup(hostname)
+                    if (addresses.isEmpty() || addresses.any { !isPublicAddress(it) }) {
+                        throw UnknownHostException("Host resolved to a non-public address")
+                    }
+                    addresses
+                },
+            ).addInterceptor { chain ->
+                var request = chain.request()
+                repeat(MAX_REDIRECTS + 1) { hop ->
+                    if (!isSafeHttpsUrl(request.url)) throw IOException("Unsafe HTTPS request URL")
+                    val response = chain.proceed(request)
+                    val location = response.header("Location")
+                    if (!response.isRedirect || location == null) return@addInterceptor response
+                    val target = resolveRedirect(request.url, location, hop, allowedRedirectHostSuffixes)
+                    if (target == null) {
+                        response.close()
+                        throw IOException("Unsafe or excessive HTTPS redirect")
+                    }
                     response.close()
-                    throw IOException("Unsafe or excessive HTTPS redirect")
+                    val redirected = request.newBuilder().url(target)
+                    if (!request.url.host.equals(target.host, ignoreCase = true)) {
+                        redirected
+                            .removeHeader("Authorization")
+                            .removeHeader("Cookie")
+                            .removeHeader("Proxy-Authorization")
+                            .removeHeader("Referer")
+                            .removeHeader("Origin")
+                            .removeHeader("Host")
+                    }
+                    request = redirected.build()
                 }
-                response.close()
-                val redirected = request.newBuilder().url(target)
-                if (!request.url.host.equals(target.host, ignoreCase = true)) {
-                    redirected.removeHeader("Authorization")
-                        .removeHeader("Cookie")
-                        .removeHeader("Proxy-Authorization")
-                        .removeHeader("Referer")
-                        .removeHeader("Origin")
-                        .removeHeader("Host")
-                }
-                request = redirected.build()
-            }
-            throw IOException("Too many HTTPS redirects")
-        }
-        .build()
+                throw IOException("Too many HTTPS redirects")
+            }.build()
 
     private fun isPublicIpv4(bytes: List<Int>): Boolean {
         if (bytes.size != 4) return false
-        val a = bytes[0]; val b = bytes[1]; val c = bytes[2]
+        val a = bytes[0]
+        val b = bytes[1]
+        val c = bytes[2]
         return when {
             a == 0 || a == 10 || a == 127 || a >= 224 -> false
             a == 100 && b in 64..127 -> false

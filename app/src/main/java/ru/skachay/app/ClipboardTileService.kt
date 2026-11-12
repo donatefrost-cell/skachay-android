@@ -39,10 +39,12 @@ class ClipboardTileService : TileService() {
             scope.launch {
                 val settings = SettingsRepository.forContext(this@ClipboardTileService).settings.first()
                 if (settings.shareMode == ShareMode.CHOOSE) {
-                    startActivity(Intent(this@ClipboardTileService, ChoiceActivity::class.java)
-                        .putExtra(DownloadService.EXTRA_URL, url)
-                        .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    startActivity(
+                        Intent(this@ClipboardTileService, ChoiceActivity::class.java)
+                            .putExtra(DownloadService.EXTRA_URL, url)
+                            .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 } else {
                     startDownload(this@ClipboardTileService, url, settings.qualityForUrl(url))
                 }
@@ -55,11 +57,16 @@ class ClipboardTileService : TileService() {
         super.onDestroy()
     }
 
-    private fun clipboardUrl(): String? = try {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.primaryClip?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)?.coerceToText(this)?.toString()?.let(SharedUrl::firstIn)
-    } catch (_: SecurityException) {
-        null
-    }
+    private fun clipboardUrl(): String? =
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.primaryClip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(this)
+                ?.toString()
+                ?.let(SharedUrl::firstIn)
+        } catch (_: SecurityException) {
+            null
+        }
 }

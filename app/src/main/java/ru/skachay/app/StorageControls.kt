@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app
 
 import android.content.Context
@@ -7,8 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -31,11 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import ru.skachay.app.settings.StorageUsage
 import ru.skachay.app.queue.DownloadQueueDatabase
+import ru.skachay.app.settings.StorageUsage
 
 @Composable
 internal fun StorageControls(sizeOverride: Pair<Long, Long>? = null) {
@@ -90,33 +93,44 @@ internal fun StorageControls(sizeOverride: Pair<Long, Long>? = null) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        cacheMessage?.let { Text(it, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+        cacheMessage?.let {
+            Text(it, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
     } ?: Text("Подсчитываю занятое место…", Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(4.dp))
     FilledTonalButton(
         onClick = { confirm = true },
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
+        colors =
+            ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            ),
     ) { Text("Очистить историю") }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
             title = { Text("Очистить историю?") },
             text = { Text("Список недавних и сведения о скачанных ссылках исчезнут. Файлы в галерее останутся.") },
-            confirmButton = { TextButton(onClick = {
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        context.getSharedPreferences("downloads", Context.MODE_PRIVATE).edit().clear().apply()
-                        context.getSharedPreferences("download_files", Context.MODE_PRIVATE).edit().clear().apply()
-                        DownloadQueueDatabase.get(context).queue().clearFinished()
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            context
+                                .getSharedPreferences("downloads", Context.MODE_PRIVATE)
+                                .edit { clear() }
+                            context
+                                .getSharedPreferences("download_files", Context.MODE_PRIVATE)
+                                .edit {
+                                    clear()
+                                }
+                            DownloadQueueDatabase.get(context).queue().clearFinished()
+                        }
                     }
-                }
-                confirm = false
-                refresh++
-            }) { Text("Очистить") } },
+                    confirm = false
+                    refresh++
+                }) { Text("Очистить") }
+            },
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
         )
     }

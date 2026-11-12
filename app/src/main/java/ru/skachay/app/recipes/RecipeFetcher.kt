@@ -1,26 +1,32 @@
 package ru.skachay.app.recipes
 
-import java.io.IOException
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.network.readUtf8Bounded
+import java.io.IOException
 
-internal data class RecipeDocument(val json: String, val recipes: Recipes)
+internal data class RecipeDocument(
+    val json: String,
+    val recipes: Recipes,
+)
 
 internal fun interface RecipeSource {
     fun read(): String?
 }
 
-internal class RecipeFetcher(private val source: RecipeSource = GithubRecipeSource()) {
+internal class RecipeFetcher(
+    private val source: RecipeSource = GithubRecipeSource(),
+) {
     fun fetch(): RecipeDocument? {
-        val json = try {
-            source.read() ?: return null
-        } catch (_: IOException) {
-            return null
-        }
+        val json =
+            try {
+                source.read() ?: return null
+            } catch (_: IOException) {
+                return null
+            }
         val recipes = RecipeCodec.parse(json) ?: return null
         return RecipeDocument(json, recipes)
     }
@@ -48,16 +54,20 @@ internal class RecipeFetcher(private val source: RecipeSource = GithubRecipeSour
 }
 
 private class GithubRecipeSource : RecipeSource {
-    private val client = UrlNetworkPolicy.publicHttpsClient(
-        callTimeoutSeconds = 30,
-        allowedRedirectHostSuffixes = setOf("raw.githubusercontent.com"),
-    )
+    private val client =
+        UrlNetworkPolicy.publicHttpsClient(
+            callTimeoutSeconds = 30,
+            allowedRedirectHostSuffixes = setOf("raw.githubusercontent.com"),
+        )
 
     override fun read(): String? {
         if (!RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL)) return null
-        val request = Request.Builder().url(RecipeFetcher.RAW_URL)
-            .header("User-Agent", "Skachay/0.1 Android")
-            .build()
+        val request =
+            Request
+                .Builder()
+                .url(RecipeFetcher.RAW_URL)
+                .header("User-Agent", "Skachay/0.1 Android")
+                .build()
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
             response.body.readUtf8Bounded(RecipeFetcher.MAX_BYTES)

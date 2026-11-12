@@ -7,7 +7,6 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -17,6 +16,7 @@ import org.junit.runner.RunWith
 import ru.skachay.app.DownloadService
 import ru.skachay.app.MainActivity
 import ru.skachay.app.choice.PreviewStore
+import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class LiveAudioInstrumentedTest {
@@ -34,20 +34,28 @@ class LiveAudioInstrumentedTest {
         val main = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         var saved: Uri? = null
         try {
-            context.startForegroundService(Intent(context, DownloadService::class.java)
-                .putExtra(DownloadService.EXTRA_URL, url)
-                .putExtra(DownloadService.EXTRA_FORMAT_ID, format!!.id)
-                .putExtra(DownloadService.EXTRA_USE_PREVIEW, true)
-                .putExtra(DownloadService.EXTRA_FILE_NAME, name))
+            context.startForegroundService(
+                Intent(context, DownloadService::class.java)
+                    .putExtra(DownloadService.EXTRA_URL, url)
+                    .putExtra(DownloadService.EXTRA_FORMAT_ID, format!!.id)
+                    .putExtra(DownloadService.EXTRA_USE_PREVIEW, true)
+                    .putExtra(DownloadService.EXTRA_FILE_NAME, name),
+            )
             val deadline = SystemClock.elapsedRealtime() + 180_000
             while (SystemClock.elapsedRealtime() < deadline && saved == null) {
-                context.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.IS_PENDING),
-                    "${MediaStore.MediaColumns.DISPLAY_NAME} = ?", arrayOf("$name.ogg"), null)?.use { cursor ->
-                    if (cursor.moveToFirst() && cursor.getLong(1) > 0 && cursor.getInt(2) == 0) {
-                        saved = android.content.ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+                context.contentResolver
+                    .query(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.IS_PENDING),
+                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                        arrayOf("$name.ogg"),
+                        null,
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst() && cursor.getLong(1) > 0 && cursor.getInt(2) == 0) {
+                            saved =
+                                android.content.ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+                        }
                     }
-                }
                 if (saved == null) SystemClock.sleep(500)
             }
             assertNotNull("The selected audio was not saved to MediaStore", saved)
