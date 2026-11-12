@@ -56,7 +56,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -135,10 +134,7 @@ internal fun QualityChoiceSheetContent(
                 .toDp() * 0.92f
         }
     var advancedExpanded by remember(preview, initiallyAdvancedExpanded) { mutableStateOf(initiallyAdvancedExpanded) }
-    val listState = rememberLazyListState()
-    LaunchedEffect(initiallyScrollToFormats, advancedExpanded) {
-        if (initiallyScrollToFormats && advancedExpanded) listState.scrollToItem(5)
-    }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (initiallyScrollToFormats) 5 else 0)
     val visibleFormats =
         remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
     var exactFormatFilter by remember(preview, initiallyShowAllFormats) {
