@@ -221,11 +221,13 @@ internal fun QualityChoiceSheetContent(
                 item {
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
-                            .clickable { advancedExpanded = !advancedExpanded }.padding(horizontal = 8.dp),
+                            .clickable { advancedExpanded = !advancedExpanded }.padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (advancedExpanded) "Скрыть дополнительно" else "Дополнительно", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        Text("Фильтры и точные форматы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(if (advancedExpanded) "Скрыть дополнительно" else "Дополнительно", style = MaterialTheme.typography.titleSmall)
+                            Text("Фильтры и точные форматы", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Icon(
                             painterResource(R.drawable.ic_back), contentDescription = if (advancedExpanded) "Свернуть" else "Развернуть",
                             modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (advancedExpanded) 90f else -90f),
