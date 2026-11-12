@@ -10,7 +10,9 @@ internal data class TransferSnapshot(
     val remainingMillis: Long?,
 )
 
-internal class TransferStats(private val now: () -> Long) {
+internal class TransferStats(
+    private val now: () -> Long,
+) {
     private var startedAt: Long? = null
     private var firstByteAt: Long? = null
     private var bytesBeforeStream = 0L
@@ -31,7 +33,10 @@ internal class TransferStats(private val now: () -> Long) {
     }
 
     @Synchronized
-    fun update(received: Long, total: Long?): TransferSnapshot {
+    fun update(
+        received: Long,
+        total: Long?,
+    ): TransferSnapshot {
         val current = now()
         val start = startedAt ?: current.also { startedAt = it }
         val safeStreamReceived = received.coerceAtLeast(0)
@@ -49,15 +54,18 @@ internal class TransferStats(private val now: () -> Long) {
         if (safeReceived > 0 && firstByteAt == null) firstByteAt = current
         val elapsed = (current - start).coerceAtLeast(0)
         val average = if (elapsed > 0 && safeReceived > 0) (safeReceived.toDouble() * 1000 / elapsed).roundToLong() else null
-        val remaining = combinedTotal?.takeIf { it > safeReceived && average != null && average > 0 }
-            ?.let { (((it - safeReceived).toDouble() * 1000) / requireNotNull(average)).roundToLong() }
-        latest = TransferSnapshot(
-            bytesReceived = safeReceived,
-            totalBytes = combinedTotal,
-            firstByteMillis = firstByteAt?.let { (it - start).coerceAtLeast(0) },
-            averageBytesPerSecond = average,
-            remainingMillis = remaining,
-        )
+        val remaining =
+            combinedTotal
+                ?.takeIf { it > safeReceived && average != null && average > 0 }
+                ?.let { (((it - safeReceived).toDouble() * 1000) / requireNotNull(average)).roundToLong() }
+        latest =
+            TransferSnapshot(
+                bytesReceived = safeReceived,
+                totalBytes = combinedTotal,
+                firstByteMillis = firstByteAt?.let { (it - start).coerceAtLeast(0) },
+                averageBytesPerSecond = average,
+                remainingMillis = remaining,
+            )
         return latest
     }
 
@@ -65,8 +73,9 @@ internal class TransferStats(private val now: () -> Long) {
     fun markFirstByte() {
         if (firstByteAt == null) {
             val start = startedAt ?: now().also { startedAt = it }
-            firstByteAt = now()
-            latest = latest.copy(firstByteMillis = (firstByteAt!! - start).coerceAtLeast(0))
+            val firstByte = now()
+            firstByteAt = firstByte
+            latest = latest.copy(firstByteMillis = (firstByte - start).coerceAtLeast(0))
         }
     }
 

@@ -9,6 +9,12 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import ru.skachay.app.DownloadService
+import ru.skachay.app.MainActivity
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketException
@@ -16,13 +22,6 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import org.junit.runner.RunWith
-import ru.skachay.app.DownloadService
-import ru.skachay.app.MainActivity
 
 @RunWith(AndroidJUnit4::class)
 class RetryFileNameInstrumentedTest {
@@ -44,29 +43,48 @@ class RetryFileNameInstrumentedTest {
                 val url = "http://127.0.0.1:${server.port}/photo.jpg"
                 testedUrl = url
                 val started = System.currentTimeMillis()
-                context.startForegroundService(Intent(context, DownloadService::class.java)
-                    .putExtra(DownloadService.EXTRA_URL, url).putExtra(DownloadService.EXTRA_FILE_NAME, name))
+                context.startForegroundService(
+                    Intent(context, DownloadService::class.java)
+                        .putExtra(DownloadService.EXTRA_URL, url)
+                        .putExtra(DownloadService.EXTRA_FILE_NAME, name),
+                )
                 val deadline = SystemClock.elapsedRealtime() + 15_000
                 var failure: Notification? = null
                 while (SystemClock.elapsedRealtime() < deadline) {
-                    val entry = manager.activeNotifications.firstOrNull {
-                        it.postTime >= started && it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() == "Не получилось скачать"
+                    val entry =
+                        manager.activeNotifications.firstOrNull {
+                            it.postTime >= started &&
+                                it.notification.extras
+                                    .getCharSequence(Notification.EXTRA_TITLE)
+                                    ?.toString() == "Не получилось скачать"
+                        }
+                    if (entry != null) {
+                        failure = entry.notification
+                        notificationId = entry.id
+                        break
                     }
-                    if (entry != null) { failure = entry.notification; notificationId = entry.id; break }
                     Thread.sleep(100)
                 }
-                assertNotNull("Expected an error notification", failure)
-                val retry = failure!!.actions.orEmpty().firstOrNull { it.title.toString() == "Повторить" }
-                assertNotNull("Expected a retry action", retry)
-                retry!!.actionIntent.send()
+                val failureNotification = requireNotNull(failure) { "Expected an error notification" }
+                val retryCandidate = failureNotification.actions.orEmpty().firstOrNull { it.title.toString() == "Повторить" }
+                val retry = requireNotNull(retryCandidate) { "Expected a retry action" }
+                retry.actionIntent.send()
                 val retryDeadline = SystemClock.elapsedRealtime() + 20_000
                 while (SystemClock.elapsedRealtime() < retryDeadline) {
                     saved = history.getString(url, null)?.let(Uri::parse)
                     if (saved != null) break
                     Thread.sleep(100)
                 }
-                assertNotNull("Expected the retried download to be saved", saved)
-                context.contentResolver.query(saved!!, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)!!.use { cursor ->
+                val savedUri = requireNotNull(saved) { "Expected the retried download to be saved" }
+                val displayNameCursor =
+                    context.contentResolver.query(
+                        savedUri,
+                        arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )
+                requireNotNull(displayNameCursor).use { cursor ->
                     assertTrue(cursor.moveToFirst())
                     assertEquals("$name.jpg", cursor.getString(0))
                 }
@@ -91,15 +109,24 @@ class RetryFileNameInstrumentedTest {
         init {
             executor.execute {
                 while (!server.isClosed) {
-                    val socket = try { server.accept() } catch (_: SocketException) { break }
+                    val socket =
+                        try {
+                            server.accept()
+                        } catch (_: SocketException) {
+                            break
+                        }
                     socket.use { connection ->
                         val reader = connection.getInputStream().bufferedReader(Charsets.US_ASCII)
-                        while (true) { if (reader.readLine().isNullOrEmpty()) break }
+                        while (true) {
+                            if (reader.readLine().isNullOrEmpty()) break
+                        }
                         val first = requests.getAndIncrement() == 0
                         val bytes = if (first) byteArrayOf() else byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte())
                         val status = if (first) "404 Not Found" else "200 OK"
                         val output = connection.getOutputStream()
-                        output.write("HTTP/1.1 $status\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                        output.write(
+                            "HTTP/1.1 $status\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII),
+                        )
                         output.write(bytes)
                     }
                 }

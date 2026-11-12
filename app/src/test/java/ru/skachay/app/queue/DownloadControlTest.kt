@@ -1,10 +1,10 @@
 package ru.skachay.app.queue
 
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class DownloadControlTest {
     @Test
@@ -13,11 +13,12 @@ class DownloadControlTest {
         control.pause()
         val started = CountDownLatch(1)
         val passedCheckpoint = CountDownLatch(1)
-        val thread = Thread {
-            started.countDown()
-            control.checkpoint()
-            passedCheckpoint.countDown()
-        }.apply { start() }
+        val thread =
+            Thread {
+                started.countDown()
+                control.checkpoint()
+                passedCheckpoint.countDown()
+            }.apply { start() }
 
         assertTrue(started.await(1, TimeUnit.SECONDS))
         assertFalse(passedCheckpoint.await(100, TimeUnit.MILLISECONDS))
@@ -31,13 +32,14 @@ class DownloadControlTest {
         val control = DownloadControl()
         control.pause()
         val stopped = CountDownLatch(1)
-        val thread = Thread {
-            try {
-                control.checkpoint()
-            } catch (_: Exception) {
-                stopped.countDown()
-            }
-        }.apply { start() }
+        val thread =
+            Thread {
+                try {
+                    control.checkpoint()
+                } catch (_: Exception) {
+                    stopped.countDown()
+                }
+            }.apply { start() }
 
         control.cancel()
 

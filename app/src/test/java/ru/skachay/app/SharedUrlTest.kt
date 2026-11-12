@@ -27,7 +27,10 @@ class SharedUrlTest {
 
     @Test
     fun skipsInvalidCandidatesBeforeAValidLink() {
-        assertEquals("https://example.com/a", SharedUrl.firstIn("http:// https://example.com/a"))
+        assertEquals(
+            "https://www.instagram.com/p/a",
+            SharedUrl.firstIn("http:// https://example.com/a https://www.instagram.com/p/a"),
+        )
     }
 
     @Test
@@ -36,5 +39,36 @@ class SharedUrlTest {
             listOf("https://youtu.be/a", "https://www.instagram.com/p/b"),
             SharedUrl.allIn("https://youtu.be/a, https://www.instagram.com/p/b. https://youtu.be/a"),
         )
+    }
+
+    @Test
+    fun acceptsOnlySupportedProviderHostsAndTheirRealSubdomains() {
+        assertEquals("https://m.youtube.com/watch?v=x", SharedUrl.firstIn("https://m.youtube.com/watch?v=x"))
+        assertEquals("https://vm.tiktok.com/abc", SharedUrl.firstIn("https://vm.tiktok.com/abc"))
+        assertEquals("https://instagr.am/p/abc", SharedUrl.firstIn("https://instagr.am/p/abc"))
+        assertNull(SharedUrl.firstIn("https://youtube.com.attacker.example/watch?v=x"))
+        assertNull(SharedUrl.firstIn("https://youtube.attacker.example/watch?v=x"))
+        assertNull(SharedUrl.firstIn("https://example.com/video"))
+    }
+
+    @Test
+    fun rejectsOverlongUrlsUserInfoAndNonWebPorts() {
+        assertNull(SharedUrl.firstIn("https://www.youtube.com/" + "a".repeat(2048)))
+        assertNull(SharedUrl.firstIn("https://user:pass@www.youtube.com/watch?v=x"))
+        assertNull(SharedUrl.firstIn("https://www.youtube.com:8080/watch?v=x"))
+        assertEquals("https://youtu.be/x", SharedUrl.firstIn("http://youtu.be/x"))
+        assertEquals("https://youtu.be/x", SharedUrl.firstIn("http://youtu.be:80/x"))
+    }
+
+    @Test
+    fun capsExtractedBatchAtTwentyLinks() {
+        val text = (1..25).joinToString(" ") { "https://youtu.be/$it" }
+        assertEquals(20, SharedUrl.allIn(text).size)
+        assertEquals("https://youtu.be/20", SharedUrl.allIn(text).last())
+    }
+
+    @Test
+    fun rejectsOversizedSharedTextBeforeScanning() {
+        assertNull(SharedUrl.firstIn("x".repeat(65_537) + " https://youtu.be/video"))
     }
 }

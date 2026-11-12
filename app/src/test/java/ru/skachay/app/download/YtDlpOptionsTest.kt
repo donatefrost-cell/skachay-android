@@ -3,8 +3,8 @@ package ru.skachay.app.download
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import ru.skachay.app.settings.Quality
 import ru.skachay.app.choice.AvailableFormat
+import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.VideoBitrateLimit
 
 class YtDlpOptionsTest {
@@ -21,6 +21,7 @@ class YtDlpOptionsTest {
     fun selectsCompatible720pWithoutEmbeddingOrReencoding() {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s").buildCommand()
         assertTrue(args.contains("--no-playlist"))
+        assertTrue(args.contains("--socket-timeout") && args[args.indexOf("--socket-timeout") + 1] == "30")
         assertTrue(args.any { it.contains("height<=720") && it.contains("avc1") })
         assertTrue(args.contains("--concurrent-fragments") && args.contains("4"))
         assertTrue(args.contains("--merge-output-format") && args.contains("mp4"))
@@ -45,35 +46,50 @@ class YtDlpOptionsTest {
 
     @Test
     fun appliesVideoBitrateLimitToAutomaticYoutubeSelection() {
-        val args = YtDlpOptions.request(
-            "https://youtu.be/example", "/cache/media.%(ext)s",
-            videoBitrateLimit = VideoBitrateLimit.K5000,
-        ).buildCommand()
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/media.%(ext)s",
+                    videoBitrateLimit = VideoBitrateLimit.K5000,
+                ).buildCommand()
         assertTrue(args.any { it.contains("vbr<=5000") })
     }
 
     @Test
     fun embedsVideoThumbnailOnlyWhenRequested() {
-        val args = YtDlpOptions.request(
-            "https://youtu.be/example", "/cache/media.%(ext)s", embedThumbnail = true,
-        ).buildCommand()
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/media.%(ext)s",
+                    embedThumbnail = true,
+                ).buildCommand()
         assertTrue(args.contains("--embed-thumbnail"))
     }
 
     @Test
     fun playlistIsOptInAndCanBeDownloadedAsAudio() {
-        val videoArgs = YtDlpOptions.request(
-            "https://youtube.com/playlist?list=PLabc", "/cache/%(playlist_index)03d.%(ext)s",
-            allowPlaylist = true,
-        ).buildCommand()
+        val videoArgs =
+            YtDlpOptions
+                .request(
+                    "https://youtube.com/playlist?list=PLabc",
+                    "/cache/%(playlist_index)03d.%(ext)s",
+                    allowPlaylist = true,
+                ).buildCommand()
         assertTrue(videoArgs.contains("--yes-playlist"))
         assertFalse(videoArgs.contains("--no-playlist"))
 
-        val audioArgs = YtDlpOptions.request(
-            "https://youtube.com/playlist?list=PLabc", "/cache/%(playlist_index)03d.%(ext)s",
-            allowPlaylist = true, playlistAudioOnly = true, audioExport = AudioExport.MP3,
-            audioBitrate = AudioBitrate.K128,
-        ).buildCommand()
+        val audioArgs =
+            YtDlpOptions
+                .request(
+                    "https://youtube.com/playlist?list=PLabc",
+                    "/cache/%(playlist_index)03d.%(ext)s",
+                    allowPlaylist = true,
+                    playlistAudioOnly = true,
+                    audioExport = AudioExport.MP3,
+                    audioBitrate = AudioBitrate.K128,
+                ).buildCommand()
         assertTrue(audioArgs.contains("bestaudio[ext=m4a]/bestaudio"))
         assertTrue(audioArgs.contains("--extract-audio"))
         assertTrue(audioArgs.indexOf("--audio-format").let { it >= 0 && audioArgs[it + 1] == "mp3" })
@@ -82,9 +98,12 @@ class YtDlpOptionsTest {
 
     @Test
     fun videoLinkInsideAPlaylistStillGetsNoPlaylistOption() {
-        val args = YtDlpOptions.request(
-            "https://www.youtube.com/watch?v=video123&list=PLabc", "/cache/video.%(ext)s",
-        ).buildCommand()
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://www.youtube.com/watch?v=video123&list=PLabc",
+                    "/cache/video.%(ext)s",
+                ).buildCommand()
 
         assertTrue(args.contains("--no-playlist"))
         assertFalse(args.contains("--yes-playlist"))
@@ -93,8 +112,15 @@ class YtDlpOptionsTest {
     @Test
     fun usesTheExtractedInfoAndSelectedFormatWithoutExtractingTheUrlAgain() {
         val selected = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
-        val args = YtDlpOptions.request("https://youtu.be/example", "/cache/video.%(ext)s", Quality.AUTO,
-            infoJson = "/cache/info.json", selected = selected).buildCommand()
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/video.%(ext)s",
+                    Quality.AUTO,
+                    infoJson = "/cache/info.json",
+                    selected = selected,
+                ).buildCommand()
         assertTrue(args.contains("--load-info-json") && args.contains("/cache/info.json"))
         assertTrue(args.contains("137+bestaudio[ext=m4a]/137+bestaudio"))
         assertFalse(args.contains("https://youtu.be/example"))
@@ -104,7 +130,14 @@ class YtDlpOptionsTest {
     fun preservesAudioOnlyAndVideoWithoutAudioSelections() {
         val video = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
         val audio = AvailableFormat("140", "m4a", null, "mp4a", null, null, 128, null)
-        val withoutAudio = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", selected = video, videoOnly = true).buildCommand()
+        val withoutAudio =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/out.%(ext)s",
+                    selected = video,
+                    videoOnly = true,
+                ).buildCommand()
         val audioOnly = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", selected = audio).buildCommand()
         assertTrue(withoutAudio.contains("137"))
         assertTrue(audioOnly.contains("140"))

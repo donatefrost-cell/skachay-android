@@ -20,5 +20,7 @@ class TikTokLinkTest {
     fun rejectsLookalikeDomains() {
         assertFalse(TikTokLink.supports("https://tiktok.com.example.org/@x/video/123"))
         assertNull(TikTokLink.postId("https://vm.tiktok.com/abc"))
+        assertFalse(TikTokLink.supports("https://user@tiktok.com/@x/video/123"))
+        assertFalse(TikTokLink.supports("https://tiktok.com:8443/@x/video/123"))
     }
 }

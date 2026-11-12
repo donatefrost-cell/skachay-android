@@ -1,28 +1,40 @@
 package ru.skachay.app
 
 import android.app.Application
+import android.content.Context
+import android.os.Build
+import android.os.StrictMode
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import ru.skachay.app.choice.createThumbnailImageLoader
+import ru.skachay.app.diagnostics.DiagnosticsStore
 import ru.skachay.app.download.YtDlpRuntime
+import ru.skachay.app.queue.DownloadQueueDatabase
 import ru.skachay.app.recipes.RecipeStore
 import ru.skachay.app.recipes.RecipeWorker
 import ru.skachay.app.updates.UpdateWorker
-import ru.skachay.app.diagnostics.DiagnosticsStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import ru.skachay.app.queue.DownloadQueueDatabase
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-class SkachayApp : Application() {
+class SkachayApp :
+    Application(),
+    SingletonImageLoader.Factory {
     private val maintenance = Executors.newSingleThreadScheduledExecutor()
+
+    override fun newImageLoader(context: Context): ImageLoader = createThumbnailImageLoader(context)
 
     override fun onCreate() {
         super.onCreate()
+        enableDebugStrictMode()
+        installUncaughtExceptionLogger()
         DiagnosticsStore.markInterrupted(this)
         RecipeStore.load(this)
         maintenance.execute {
@@ -30,29 +42,63 @@ class SkachayApp : Application() {
                 runBlocking(Dispatchers.IO) {
                     DownloadQueueDatabase.get(this@SkachayApp).queue().markInterrupted(System.currentTimeMillis())
                 }
-            }.onFailure { Log.w("Skachay", "Не удалось восстановить очередь после перезапуска", it) }
+            }.onFailure { Log.w("Skachay", "Не удалось восстановить очередь после перезапуска: ${it.javaClass.simpleName}") }
         }
-        val recipes = PeriodicWorkRequest.Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
+        val recipes =
+            PeriodicWorkRequest
+                .Builder(RecipeWorker::class.java, 1, TimeUnit.DAYS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("recipe-update", ExistingPeriodicWorkPolicy.KEEP, recipes)
-        val updates = PeriodicWorkRequest.Builder(UpdateWorker::class.java, 1, TimeUnit.DAYS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
+        val updates =
+            PeriodicWorkRequest
+                .Builder(UpdateWorker::class.java, 1, TimeUnit.DAYS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("app-update", ExistingPeriodicWorkPolicy.KEEP, updates)
         maintenance.execute {
             try {
                 YtDlpRuntime.initialize(this)
             } catch (error: Exception) {
-                Log.w("Skachay", "Не удалось подготовить движок", error)
+                Log.w("Skachay", "Не удалось подготовить движок: ${error.javaClass.simpleName}")
             }
         }
         maintenance.scheduleWithFixedDelay({
             try {
                 YtDlpRuntime.updateIfDue(this)
             } catch (error: Exception) {
-                Log.w("Skachay", "Не удалось обновить движок", error)
+                Log.w("Skachay", "Не удалось обновить движок: ${error.javaClass.simpleName}")
             }
         }, 1, 24 * 60L, TimeUnit.MINUTES)
+    }
+
+    private fun enableDebugStrictMode() {
+        if (!BuildConfig.DEBUG) return
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy
+                .Builder()
+                .detectAll()
+                .penaltyLog()
+                .build(),
+        )
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy
+                .Builder()
+                .detectLeakedClosableObjects()
+                .detectLeakedRegistrationObjects()
+                .detectActivityLeaks()
+                .detectFileUriExposure()
+                .penaltyLog()
+                .build(),
+        )
+    }
+
+    private fun installUncaughtExceptionLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching { DiagnosticsStore.recordUnhandledException(this, thread, error) }
+            Log.e("Skachay", "Необработанная ошибка: ${error.javaClass.simpleName}")
+            previous?.uncaughtException(thread, error)
+        }
     }
 }

@@ -4,8 +4,6 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
-import java.util.UUID
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -13,6 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class MediaStoreNameInstrumentedTest {
@@ -31,15 +31,18 @@ class MediaStoreNameInstrumentedTest {
         try {
             val savedSecond = writer.save(second, "image/jpeg", suggestedName)
             secondUri = savedSecond
-            fun displayName(uri: android.net.Uri): String = context.contentResolver.query(uri,
-                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)!!.use { cursor ->
-                assertTrue("Expected a MediaStore row", cursor.moveToFirst())
-                cursor.getString(0)
+
+            fun displayName(uri: android.net.Uri): String {
+                val cursor = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+                return requireNotNull(cursor).use { result ->
+                    assertTrue("Expected a MediaStore row", result.moveToFirst())
+                    result.getString(0)
+                }
             }
             assertEquals("$suggestedName.jpg", displayName(firstUri))
             assertNotEquals(displayName(firstUri), displayName(savedSecond))
-            assertArrayEquals(firstBytes, context.contentResolver.openInputStream(firstUri)!!.use { it.readBytes() })
-            assertArrayEquals(secondBytes, context.contentResolver.openInputStream(savedSecond)!!.use { it.readBytes() })
+            assertArrayEquals(firstBytes, requireNotNull(context.contentResolver.openInputStream(firstUri)).use { it.readBytes() })
+            assertArrayEquals(secondBytes, requireNotNull(context.contentResolver.openInputStream(savedSecond)).use { it.readBytes() })
         } finally {
             context.contentResolver.delete(firstUri, null, null)
             secondUri?.let { context.contentResolver.delete(it, null, null) }

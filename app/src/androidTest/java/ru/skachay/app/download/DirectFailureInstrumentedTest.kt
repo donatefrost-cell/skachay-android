@@ -4,12 +4,6 @@ import android.content.Intent
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.net.InetAddress
-import java.net.ServerSocket
-import java.net.SocketException
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +13,12 @@ import ru.skachay.app.MainActivity
 import ru.skachay.app.diagnostics.DiagnosticStatus
 import ru.skachay.app.diagnostics.DiagnosticsStore
 import ru.skachay.app.diagnostics.DownloadProvider
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.SocketException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class DirectFailureInstrumentedTest {
@@ -30,13 +30,18 @@ class DirectFailureInstrumentedTest {
         try {
             NotFoundServer().use { server ->
                 val started = System.currentTimeMillis()
-                context.startForegroundService(Intent(context, DownloadService::class.java)
-                    .putExtra(DownloadService.EXTRA_URL, "http://127.0.0.1:${server.port}/missing.jpg"))
+                context.startForegroundService(
+                    Intent(context, DownloadService::class.java)
+                        .putExtra(DownloadService.EXTRA_URL, "http://127.0.0.1:${server.port}/missing.jpg"),
+                )
                 val deadline = SystemClock.elapsedRealtime() + 20_000
                 var failed = false
                 while (SystemClock.elapsedRealtime() < deadline) {
                     val entry = DiagnosticsStore.read(context).first { it.provider == DownloadProvider.OTHER }
-                    if (entry.timestamp >= started && entry.status == DiagnosticStatus.FAILED) { failed = true; break }
+                    if (entry.timestamp >= started && entry.status == DiagnosticStatus.FAILED) {
+                        failed = true
+                        break
+                    }
                     Thread.sleep(100)
                 }
                 assertTrue("The direct request should finish with a visible error", failed)
@@ -56,12 +61,21 @@ class DirectFailureInstrumentedTest {
         init {
             executor.execute {
                 while (!server.isClosed) {
-                    val socket = try { server.accept() } catch (_: SocketException) { break }
+                    val socket =
+                        try {
+                            server.accept()
+                        } catch (_: SocketException) {
+                            break
+                        }
                     socket.use { connection ->
                         val reader = connection.getInputStream().bufferedReader(Charsets.US_ASCII)
-                        while (true) { if (reader.readLine().isNullOrEmpty()) break }
+                        while (true) {
+                            if (reader.readLine().isNullOrEmpty()) break
+                        }
                         requests.incrementAndGet()
-                        connection.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                        connection.getOutputStream().write(
+                            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII),
+                        )
                     }
                 }
             }

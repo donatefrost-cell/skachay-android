@@ -1,12 +1,12 @@
 package ru.skachay.app.download
 
-import java.util.concurrent.Executors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.util.concurrent.Executors
 
 class SavedFileNameTest {
     @get:Rule val temp = TemporaryFolder()
@@ -21,10 +21,18 @@ class SavedFileNameTest {
     }
 
     @Test
+    fun protectsReservedDeviceNames() {
+        assertEquals("CON_.mp4", SavedFileName.displayName("CON", "mp4"))
+        assertEquals("aux_.jpg", SavedFileName.displayName("aux", "jpg"))
+        assertEquals("CON_.txt.mp4", SavedFileName.displayName("CON.txt", "mp4"))
+        assertEquals("report_con.txt.mp4", SavedFileName.displayName("report_con.txt", "mp4"))
+    }
+
+    @Test
     fun numbersSeveralItemsAndLimitsUtf8LengthWithoutBreakingEmoji() {
         assertEquals("Семья (1).jpg", SavedFileName.displayName("Семья.jpg", "jpg", 1))
         assertEquals("Семья (2).mp4", SavedFileName.displayName("Семья", "mp4", 2))
-        val name = SavedFileName.displayName("😀".repeat(100), "jpg")!!
+        val name = requireNotNull(SavedFileName.displayName("😀".repeat(100), "jpg"))
         assertTrue(name.toByteArray(Charsets.UTF_8).size <= 164)
         assertEquals("😀".repeat(40) + ".jpg", name)
     }

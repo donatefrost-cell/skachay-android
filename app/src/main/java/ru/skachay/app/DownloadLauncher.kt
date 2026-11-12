@@ -14,12 +14,19 @@ import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.qualityFor
 
-internal fun AppSettings.qualityForUrl(url: String): Quality = qualityFor(when {
-    SourceType.isYouTube(url) -> DownloadPlatform.YOUTUBE
-    else -> DownloadPlatform.OTHER
-})
+internal fun AppSettings.qualityForUrl(url: String): Quality =
+    qualityFor(
+        when {
+            SourceType.isYouTube(url) -> DownloadPlatform.YOUTUBE
+            else -> DownloadPlatform.OTHER
+        },
+    )
 
-internal fun startBatchDownloads(context: Context, urls: List<String>, settings: AppSettings) {
+internal fun startBatchDownloads(
+    context: Context,
+    urls: List<String>,
+    settings: AppSettings,
+) {
     val batch = urls.distinct().take(20)
     if (batch.isEmpty()) return
     try {
@@ -41,21 +48,25 @@ internal fun startBatchDownloads(context: Context, urls: List<String>, settings:
             }
         }
         if (playlists.isNotEmpty()) {
-            val choice = Intent(context, ChoiceActivity::class.java)
-                .putExtra(DownloadService.EXTRA_URL, playlists.first())
-                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(playlists.first()).name)
-                .putStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE, ArrayList(playlists.drop(1)))
+            val choice =
+                Intent(context, ChoiceActivity::class.java)
+                    .putExtra(DownloadService.EXTRA_URL, playlists.first())
+                    .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(playlists.first()).name)
+                    .putStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE, ArrayList(playlists.drop(1)))
             if (context !is Activity) choice.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(choice)
         }
-        val message = buildList {
-            if (regularLinks.isNotEmpty()) add("Добавлено загрузок: ${regularLinks.size}")
-            if (playlists.isNotEmpty()) add("Плейлистов на подтверждение: ${playlists.size}")
-        }.joinToString(" · ")
+        val message =
+            buildList {
+                if (regularLinks.isNotEmpty()) add("Добавлено загрузок: ${regularLinks.size}")
+                if (playlists.isNotEmpty()) add("Плейлистов на подтверждение: ${playlists.size}")
+            }.joinToString(" · ")
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     } catch (_: IllegalStateException) {
         Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
     } catch (_: SecurityException) {
+        Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
+    } catch (_: Exception) {
         Toast.makeText(context, "Не удалось добавить список. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
     }
 }

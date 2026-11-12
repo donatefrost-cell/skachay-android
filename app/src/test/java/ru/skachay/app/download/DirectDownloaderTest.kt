@@ -1,11 +1,6 @@
 package ru.skachay.app.download
 
 import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
-import java.util.Collections
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -14,6 +9,11 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.net.InetSocketAddress
+import java.util.Collections
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class DirectDownloaderTest {
     @get:Rule
@@ -28,6 +28,24 @@ class DirectDownloaderTest {
         assertEquals(size - 1, segments.last().last)
         assertTrue(segments.all { it.last - it.first + 1 <= 8L * 1024 * 1024 })
         assertTrue(segments.zipWithNext().all { (left, right) -> left.last + 1 == right.first })
+    }
+
+    @Test
+    fun capsRangeMetadataForVeryLargeFilesWithoutOverflowingOffsets() {
+        val segments = rangeSegments(Long.MAX_VALUE, connections = 16)
+        assertEquals(4_096, segments.size)
+        assertEquals(0L, segments.first().first)
+        assertEquals(Long.MAX_VALUE - 1, segments.last().last)
+        assertTrue(segments.zipWithNext().all { (left, right) -> left.last + 1 == right.first })
+    }
+
+    @Test
+    fun checksAvailableSpaceForDownloadAndRangeParts() {
+        assertTrue(DownloadSpacePolicy.hasEnough(100, 80, copies = 1))
+        assertTrue(DownloadSpacePolicy.hasEnough(120, 60, copies = 2))
+        assertTrue(DownloadSpacePolicy.hasEnough(40, 60, copies = 1, existingBytesToReplace = 20))
+        assertTrue(!DownloadSpacePolicy.hasEnough(100, 60, copies = 2))
+        assertTrue(!DownloadSpacePolicy.hasEnough(100, Long.MAX_VALUE, copies = 2))
     }
 
     @Test
@@ -191,6 +209,7 @@ class DirectDownloaderTest {
                     exchange.sendResponseHeaders(206, 1)
                     exchange.responseBody.use { it.write(original, 0, 1) }
                 }
+
                 bounds != null && exchange.requestHeaders.getFirst("If-Range") != "\"old\"" -> {
                     val start = bounds.groupValues[1].toInt()
                     val end = bounds.groupValues[2].toInt()
@@ -199,6 +218,7 @@ class DirectDownloaderTest {
                     exchange.sendResponseHeaders(206, (end - start + 1).toLong())
                     exchange.responseBody.use { it.write(data, start, end - start + 1) }
                 }
+
                 else -> {
                     exchange.sendResponseHeaders(200, replacement.size.toLong())
                     exchange.responseBody.use { it.write(replacement) }
@@ -216,7 +236,12 @@ class DirectDownloaderTest {
         }
     }
 
-    private fun withServer(content: ByteArray, ranges: Boolean, count: AtomicInteger, test: (String) -> Unit) {
+    private fun withServer(
+        content: ByteArray,
+        ranges: Boolean,
+        count: AtomicInteger,
+        test: (String) -> Unit,
+    ) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val executor = Executors.newCachedThreadPool()
         server.executor = executor

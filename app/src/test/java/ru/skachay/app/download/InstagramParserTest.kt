@@ -15,7 +15,19 @@ class InstagramParserTest {
 
     @Test
     fun extractsAllItemsInMixedCarouselWithoutVideoThumbnails() {
-        val html = """<script>{"edge_sidecar_to_children":{"edges":[{"node":{"is_video":false,"display_url":"https:\/\/cdn.example\/photo.jpg?x=1\u0026y=2"}},{"node":{"is_video":true,"display_url":"https:\/\/cdn.example\/cover.jpg","video_url":"https:\/\/cdn.example\/video.mp4"}}]}}</script>"""
+        val html =
+            """
+            <script>
+            {
+              "edge_sidecar_to_children": {
+                "edges": [
+                  {"node": {"is_video": false, "display_url": "https:\/\/cdn.example\/photo.jpg?x=1\u0026y=2"}},
+                  {"node": {"is_video": true, "display_url": "https:\/\/cdn.example\/cover.jpg", "video_url": "https:\/\/cdn.example\/video.mp4"}}
+                ]
+              }
+            }
+            </script>
+            """.trimIndent()
         val media = InstagramParser.parse(html)
         assertEquals(listOf("https://cdn.example/photo.jpg?x=1&y=2", "https://cdn.example/video.mp4"), media.map { it.url })
         assertEquals(listOf(ResolvedMedia.Kind.IMAGE, ResolvedMedia.Kind.VIDEO), media.map { it.type })
@@ -39,6 +51,15 @@ class InstagramParserTest {
     @Test
     fun rejectsNonHttpMedia() {
         assertTrue(InstagramParser.parse("""{"video_url":"file:///data/private"}""").isEmpty())
+    }
+
+    @Test
+    fun rejectsPrivateMediaAndUpgradesCleartextCdnLinksToHttps() {
+        assertTrue(InstagramParser.parse("""{"video_url":"https://127.0.0.1/private.mp4"}""").isEmpty())
+        assertEquals(
+            "https://cdn.example/video.mp4",
+            InstagramParser.parse("""{"video_url":"http://cdn.example/video.mp4"}""").single().url,
+        )
     }
 
     @Test

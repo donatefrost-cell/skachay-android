@@ -20,12 +20,16 @@ internal class DownloadNotificationState<T> {
     private var totalCount = 0
 
     @Synchronized
-    fun start(id: Int, notification: T): DownloadNotificationSnapshot<T> {
-        return startIfAbsent(id, notification) ?: currentSnapshot()
-    }
+    fun start(
+        id: Int,
+        notification: T,
+    ): DownloadNotificationSnapshot<T> = startIfAbsent(id, notification) ?: currentSnapshot()
 
     @Synchronized
-    fun startIfAbsent(id: Int, notification: T): DownloadNotificationSnapshot<T>? {
+    fun startIfAbsent(
+        id: Int,
+        notification: T,
+    ): DownloadNotificationSnapshot<T>? {
         if (id in active) return null
         active[id] = notification
         totalCount++
@@ -34,13 +38,19 @@ internal class DownloadNotificationState<T> {
     }
 
     @Synchronized
-    fun update(id: Int, notification: T): DownloadNotificationSnapshot<T> {
+    fun update(
+        id: Int,
+        notification: T,
+    ): DownloadNotificationSnapshot<T> {
         if (id in active) active[id] = notification
         return currentSnapshot()
     }
 
     @Synchronized
-    fun complete(id: Int, notification: T): DownloadNotificationSnapshot<T> {
+    fun complete(
+        id: Int,
+        notification: T,
+    ): DownloadNotificationSnapshot<T> {
         if (active.remove(id) == null) return currentSnapshot(completed = id to notification)
         val wasForeground = foregroundId == id
         if (wasForeground) foregroundId = active.keys.firstOrNull()
@@ -62,13 +72,14 @@ internal class DownloadNotificationState<T> {
     fun currentSnapshot(
         detachForeground: Boolean = false,
         completed: Pair<Int, T>? = null,
-    ): DownloadNotificationSnapshot<T> = DownloadNotificationSnapshot(
-        foregroundId = foregroundId,
-        active = active.toMap(),
-        totalCount = totalCount,
-        detachForeground = detachForeground,
-        completed = completed,
-    )
+    ): DownloadNotificationSnapshot<T> =
+        DownloadNotificationSnapshot(
+            foregroundId = foregroundId,
+            active = active.toMap(),
+            totalCount = totalCount,
+            detachForeground = detachForeground,
+            completed = completed,
+        )
 }
 
 internal object DownloadNotificationId {

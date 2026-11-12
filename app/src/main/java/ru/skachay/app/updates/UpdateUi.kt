@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app.updates
 
 import android.content.ActivityNotFoundException
@@ -29,10 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import java.io.IOException
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 @Composable
 internal fun UpdateBanner() {
@@ -47,11 +50,15 @@ internal fun UpdateBanner() {
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    val allowInstall = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        val uri = installerUri
-        if (uri != null && context.packageManager.canRequestPackageInstalls()) openInstaller(context, uri)
-        else message(context, "Чтобы установить обновление, разрешите установку для «Скачай»")
-    }
+    val allowInstall =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val uri = installerUri
+            if (uri != null && context.packageManager.canRequestPackageInstalls()) {
+                openInstaller(context, uri)
+            } else {
+                message(context, "Чтобы установить обновление, разрешите установку для «Скачай»")
+            }
+        }
     release?.let { update ->
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -67,7 +74,9 @@ internal fun UpdateBanner() {
                                 openInstaller(context, uri)
                             } else {
                                 try {
-                                    allowInstall.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+                                    allowInstall.launch(
+                                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri()),
+                                    )
                                 } catch (_: ActivityNotFoundException) {
                                     message(context, "Откройте настройки телефона и разрешите установку для «Скачай»")
                                 }
@@ -98,11 +107,14 @@ internal fun UpdateCheckButton() {
             checking = true
             try {
                 val result = withContext(Dispatchers.IO) { ReleaseStore.check(context.applicationContext) }
-                message(context, when (result) {
-                    is ReleaseCheck.Found -> "Доступно обновление. Откройте главный экран"
-                    ReleaseCheck.UpToDate -> "У вас последняя версия"
-                    ReleaseCheck.Unavailable -> "Не удалось проверить обновления. Попробуйте позже"
-                })
+                message(
+                    context,
+                    when (result) {
+                        is ReleaseCheck.Found -> "Доступно обновление. Откройте главный экран"
+                        ReleaseCheck.UpToDate -> "У вас последняя версия"
+                        ReleaseCheck.Unavailable -> "Не удалось проверить обновления. Попробуйте позже"
+                    },
+                )
             } finally {
                 checking = false
             }
@@ -112,10 +124,16 @@ internal fun UpdateCheckButton() {
     }
 }
 
-private fun openInstaller(context: Context, uri: Uri) {
+private fun openInstaller(
+    context: Context,
+    uri: Uri,
+) {
     try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+        )
     } catch (_: ActivityNotFoundException) {
         message(context, "Не удалось открыть установщик. Попробуйте ещё раз")
     } catch (_: SecurityException) {
@@ -123,4 +141,7 @@ private fun openInstaller(context: Context, uri: Uri) {
     }
 }
 
-private fun message(context: Context, value: String) = Toast.makeText(context, value, Toast.LENGTH_LONG).show()
+private fun message(
+    context: Context,
+    value: String,
+) = Toast.makeText(context, value, Toast.LENGTH_LONG).show()

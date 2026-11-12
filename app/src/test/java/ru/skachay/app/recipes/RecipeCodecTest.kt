@@ -1,12 +1,11 @@
 package ru.skachay.app.recipes
 
-import java.io.File
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 
 class RecipeCodecTest {
     private fun defaults(): String = File("../recipe-defaults/recipes.json").readText()
@@ -16,9 +15,8 @@ class RecipeCodecTest {
         assertEquals(Recipes(), RecipeCodec.parse(defaults()))
         val json = JSONObject(defaults())
         json.getJSONObject("instagram").put("embed_enabled", false)
-        val recipes = RecipeCodec.parse(json.toString())
-        assertNotNull(recipes)
-        assertFalse(recipes!!.instagram.embedEnabled)
+        val recipes = requireNotNull(RecipeCodec.parse(json.toString()))
+        assertFalse(recipes.instagram.embedEnabled)
         assertEquals("video_url", recipes.instagram.videoField)
         assertEquals(listOf("__UNIVERSAL_DATA_FOR_REHYDRATION__", "SIGI_STATE"), recipes.tiktok.scriptIds)
     }

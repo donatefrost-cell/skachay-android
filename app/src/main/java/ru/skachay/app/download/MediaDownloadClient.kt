@@ -1,16 +1,25 @@
 package ru.skachay.app.download
 
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
+import ru.skachay.app.network.UrlNetworkPolicy
 
 /** Shared connection pool for media byte transfers. OkHttp negotiates HTTP/2 when the host supports it. */
 internal object MediaDownloadClient {
-    val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
+    val client = UrlNetworkPolicy.publicHttpsClient(callTimeoutSeconds = 6 * 60 * 60)
 
     val downloader: DirectDownloader = DirectDownloader(client)
+
+    private val restrictedDownloaders = mutableMapOf<Set<String>, DirectDownloader>()
+
+    @Synchronized
+    fun forSource(sourceUrl: String): DirectDownloader? {
+        val suffixes = ResolvedMediaNetworkPolicy.redirectHostSuffixes(sourceUrl) ?: return null
+        return restrictedDownloaders.getOrPut(suffixes) {
+            DirectDownloader(
+                UrlNetworkPolicy.publicHttpsClient(
+                    callTimeoutSeconds = 6 * 60 * 60,
+                    allowedRedirectHostSuffixes = suffixes,
+                ),
+            )
+        }
+    }
 }

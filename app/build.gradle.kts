@@ -2,10 +2,42 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("com.android.compose.screenshot") version "0.0.1-alpha16"
 }
 
-val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.0").get().removePrefix("v")
+ktlint {
+    version.set("1.8.0")
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+// Patch build-tool transitive dependencies because CI scans the complete lockfile, including lint/ktlint classpaths.
+configurations.configureEach {
+    resolutionStrategy.force(
+        "ch.qos.logback:logback-classic:1.5.34",
+        "ch.qos.logback:logback-core:1.5.34",
+        "com.google.guava:guava:33.7.2-jre",
+        "org.apache.commons:commons-lang3:3.18.0",
+        "org.apache.httpcomponents:httpclient:4.5.13",
+        "org.bouncycastle:bcpkix-jdk18on:1.85",
+        "org.bouncycastle:bcprov-jdk18on:1.85",
+        "org.bouncycastle:bcutil-jdk18on:1.85",
+    )
+}
+
+val releaseVersion =
+    providers
+        .gradleProperty("releaseVersion")
+        .orElse("0.1.0")
+        .get()
+        .removePrefix("v")
 require(Regex("\\d{1,4}\\.\\d{1,3}(?:\\.\\d{1,3})?").matches(releaseVersion)) {
     "releaseVersion должен иметь вид 1.0 или 1.0.1"
 }
@@ -13,8 +45,14 @@ val releaseParts = releaseVersion.split('.').map(String::toInt)
 val releaseCode = releaseParts[0] * 1_000_000 + releaseParts[1] * 1_000 + releaseParts.getOrElse(2) { 0 }
 require(releaseParts[0] <= 2099 && releaseCode in 1..2_100_000_000) { "Недопустимый номер версии" }
 
-val signingValues = listOf("SKACHAY_KEYSTORE_PATH", "SKACHAY_KEYSTORE_PASSWORD", "SKACHAY_KEY_ALIAS", "SKACHAY_KEY_PASSWORD")
-    .map { providers.environmentVariable(it).orNull }
+val signingNames =
+    listOf(
+        "SKACHAY_KEYSTORE_PATH",
+        "SKACHAY_KEYSTORE_PASSWORD",
+        "SKACHAY_KEY_ALIAS",
+        "SKACHAY_KEY_PASSWORD",
+    )
+val signingValues = signingNames.map { providers.environmentVariable(it).orNull }
 require(signingValues.all { it.isNullOrBlank() } || signingValues.none { it.isNullOrBlank() }) {
     "Для подписывания нужны путь к ключу, оба пароля и псевдоним ключа"
 }
@@ -41,10 +79,10 @@ android {
     signingConfigs {
         if (signingValues.none { it.isNullOrBlank() }) {
             create("production") {
-                storeFile = file(signingValues[0]!!)
-                storePassword = signingValues[1]
-                keyAlias = signingValues[2]
-                keyPassword = signingValues[3]
+                storeFile = file(requireNotNull(signingValues[0]))
+                storePassword = requireNotNull(signingValues[1])
+                keyAlias = requireNotNull(signingValues[2])
+                keyPassword = requireNotNull(signingValues[3])
             }
         }
     }
@@ -56,8 +94,22 @@ android {
         }
     }
 
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        // The release APK intentionally targets ARM phones; x86 variants would substantially increase its download size.
+        disable += "ChromeOsAbiSupport"
+    }
+
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     sourceSets["main"].assets.srcDir(rootProject.layout.projectDirectory.dir("recipe-defaults"))
@@ -75,6 +127,8 @@ android {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.appcompat:appcompat:1.8.0")
+    implementation("androidx.lifecycle:lifecycle-runtime:2.11.0")
     implementation("androidx.datastore:datastore-preferences:1.3.0")
     implementation("androidx.work:work-runtime:2.12.0")
     implementation("androidx.room:room-runtime:2.8.5")
@@ -82,14 +136,20 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.5")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.google.code.gson:gson:2.15.0")
     implementation("com.google.re2j:re2j:1.8")
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.23.0"))
+    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("commons-io:commons-io:2.22.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     screenshotTestImplementation("androidx.compose.ui:ui-tooling:1.12.1")
-    screenshotTestImplementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
+    screenshotTestImplementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha17")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260814")
     androidTestImplementation("androidx.test:runner:1.7.0")

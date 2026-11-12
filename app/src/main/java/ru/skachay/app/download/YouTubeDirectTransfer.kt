@@ -1,9 +1,10 @@
 package ru.skachay.app.download
 
 import android.content.Context
+import ru.skachay.app.diagnostics.DownloadStage
 import java.io.File
 import java.io.IOException
-import ru.skachay.app.diagnostics.DownloadStage
+import java.util.concurrent.TimeUnit
 
 internal object YouTubeDirectTransfer {
     fun download(
@@ -21,27 +22,37 @@ internal object YouTubeDirectTransfer {
         if (parts.any { it.directUrl == null }) throw IOException("Direct media stream unavailable")
         if (parts.any { it.extension !in setOf("mp4", "m4a") }) throw IOException("Unsupported direct media container")
 
-        val expectedTotal = parts.map { it.sizeBytes }.takeIf { sizes -> sizes.all { it != null } }
-            ?.sumOf { requireNotNull(it) }
+        val expectedTotal =
+            parts
+                .map { it.sizeBytes }
+                .takeIf { sizes -> sizes.all { it != null } }
+                ?.sumOf { requireNotNull(it) }
         var completedBytes = 0L
-        val files = parts.mapIndexed { index, format ->
-            val file = File(directory, "youtube-$index.${format.extension}")
-            onStage(DownloadStage.TRANSFER)
-            MediaDownloadClient.downloader.download(
-                url = requireNotNull(format.directUrl),
-                destination = file,
-                connections = connections,
-                headers = format.httpHeaders,
-                retries = retries,
-                onFirstByte = onFirstByte,
-                onProgress = { received, total ->
-                    val combinedTotal = expectedTotal ?: total?.let { completedBytes + it }
-                    onProgress(completedBytes + received, combinedTotal)
-                },
-            )
-            completedBytes += file.length()
-            file
-        }
+        val files =
+            parts.mapIndexed { index, format ->
+                val file = File(directory, "youtube-$index.${format.extension}")
+                onStage(DownloadStage.TRANSFER)
+                val mediaDownloader =
+                    MediaDownloadClient.forSource("https://youtube.com")
+                        ?: throw IOException("Unsupported YouTube media source")
+                if (!ResolvedMediaNetworkPolicy.isAllowed("https://youtube.com", requireNotNull(format.directUrl))) {
+                    throw IOException("Unsafe YouTube media URL")
+                }
+                mediaDownloader.download(
+                    url = requireNotNull(format.directUrl),
+                    destination = file,
+                    connections = connections,
+                    headers = format.httpHeaders,
+                    retries = retries,
+                    onFirstByte = onFirstByte,
+                    onProgress = { received, total ->
+                        val combinedTotal = expectedTotal ?: total?.let { completedBytes + it }
+                        onProgress(completedBytes + received, combinedTotal)
+                    },
+                )
+                completedBytes += file.length()
+                file
+            }
 
         if (streams.video == null) return files.single()
         if (streams.audio == null) return files.single()
@@ -53,32 +64,61 @@ internal object YouTubeDirectTransfer {
         return output
     }
 
-    private fun merge(context: Context, video: File, audio: File, output: File) {
+    private fun merge(
+        context: Context,
+        video: File,
+        audio: File,
+        output: File,
+    ) {
         val executable = File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
         if (!executable.isFile || !executable.canExecute()) throw IOException("FFmpeg is unavailable")
-        val process = try {
-            ProcessBuilder(
-                executable.absolutePath,
-                "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                "-i", video.absolutePath,
-                "-i", audio.absolutePath,
-                "-map", "0:v:0", "-map", "1:a:0",
-                "-c", "copy", "-movflags", "+faststart",
-                output.absolutePath,
-            ).redirectErrorStream(true).start()
-        } catch (error: IOException) {
-            throw IOException("Could not start FFmpeg", error)
-        }
-        val tail = ArrayDeque<String>()
-        try {
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    tail.addLast(line.take(300))
-                    while (tail.size > 8) tail.removeFirst()
+        val process =
+            try {
+                ProcessBuilder(
+                    executable.absolutePath,
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    video.absolutePath,
+                    "-i",
+                    audio.absolutePath,
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                    "-c",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    output.absolutePath,
+                ).redirectErrorStream(true).start()
+            } catch (error: IOException) {
+                throw IOException("Could not start FFmpeg", error)
+            }
+        val outputDrain =
+            Thread({
+                try {
+                    process.inputStream.use { input ->
+                        val buffer = ByteArray(8_192)
+                        while (input.read(buffer) != -1) Unit
+                    }
+                } catch (_: IOException) {
+                    // The process may close its output stream as it exits.
                 }
+            }, "skachay-ffmpeg-output").apply {
+                isDaemon = true
+                start()
+            }
+        try {
+            if (!process.waitFor(2, TimeUnit.MINUTES)) {
+                process.destroyForcibly()
+                throw IOException("FFmpeg merge timed out")
             }
             if (process.waitFor() != 0 || !output.isFile || output.length() == 0L) {
-                throw IOException("FFmpeg merge failed: ${tail.joinToString(" ").take(1_000)}")
+                throw IOException("FFmpeg merge failed")
             }
         } catch (interrupted: InterruptedException) {
             process.destroyForcibly()
@@ -86,6 +126,7 @@ internal object YouTubeDirectTransfer {
             throw IOException("FFmpeg merge interrupted", interrupted)
         } finally {
             if (process.isAlive) process.destroyForcibly()
+            outputDrain.interrupt()
         }
     }
 }

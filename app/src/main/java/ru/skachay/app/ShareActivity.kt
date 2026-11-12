@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import ru.skachay.app.choice.PreviewStore
 import ru.skachay.app.choice.SocialPreviewStore
-import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.InstagramLink
+import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
@@ -36,11 +36,12 @@ class ShareActivity : Activity() {
     }
 
     private fun accept(incoming: Intent?) {
-        val text = when (incoming?.action) {
-            Intent.ACTION_SEND -> incoming.getStringExtra(Intent.EXTRA_TEXT)
-            Intent.ACTION_VIEW -> incoming.dataString
-            else -> null
-        }
+        val text =
+            when (incoming?.action) {
+                Intent.ACTION_SEND -> incoming.getStringExtra(Intent.EXTRA_TEXT)
+                Intent.ACTION_VIEW -> incoming.dataString
+                else -> null
+            }
         val url = SharedUrl.firstIn(text)
         if (url == null) {
             Toast.makeText(this, "Не удалось найти ссылку", Toast.LENGTH_LONG).show()
@@ -55,9 +56,11 @@ class ShareActivity : Activity() {
                         if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
                             SocialPreviewStore.prefetch(applicationContext, url)
                         }
-                        startActivity(Intent(this@ShareActivity, ChoiceActivity::class.java)
-                            .putExtra(DownloadService.EXTRA_URL, url)
-                            .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name))
+                        startActivity(
+                            Intent(this@ShareActivity, ChoiceActivity::class.java)
+                                .putExtra(DownloadService.EXTRA_URL, url)
+                                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name),
+                        )
                     } else {
                         startDownload(this@ShareActivity, url, settings.qualityForUrl(url))
                     }

@@ -8,29 +8,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
 jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+
   debug:
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - name: Установить Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Проверить и собрать
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug updateDebugScreenshotTest
+        run: ./gradlew --no-daemon --write-locks --stacktrace testDebugUnitTest lintDebug ktlintCheck assembleDebug assembleRelease validateDebugScreenshotTest
       - name: Включить аппаратное ускорение Android-эмулятора
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Проверить очередь на Android-эмуляторе
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
           target: google_apis
@@ -38,7 +72,12 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.queue.DownloadQueueDatabaseTest,ru.skachay.app.download.DownloadNotificationCountInstrumentedTest
+          script: ./gradlew --no-daemon --write-locks connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.queue.DownloadQueueDatabaseTest,ru.skachay.app.download.DownloadNotificationCountInstrumentedTest
+      - name: Проверить зависимости на известные уязвимости
+        uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
+        with:
+          scan-args: |-
+            --lockfile=./app/gradle.lockfile
       - name: Показать причину ошибки снимков
         if: failure()
         run: |
@@ -46,7 +85,7 @@ jobs:
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
-          root = Path("app/build/test-results/updateDebugScreenshotTest")
+          root = Path("app/build/test-results/validateDebugScreenshotTest")
           for report in root.rglob("*.xml") if root.exists() else []:
               try:
                   suite = ET.parse(report).getroot()
@@ -60,36 +99,44 @@ jobs:
                       print(failure.get("message", ""))
                       print((failure.text or "")[-12000:])
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: skachay-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/schemas/**/*.json
+            app/gradle.lockfile
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: skachay-screenshots
           path: app/src/screenshotTestDebug/reference/
           if-no-files-found: warn
+          retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 75
     env:
       SKACHAY_KEYSTORE_PASSWORD: ${{ secrets.SKACHAY_KEYSTORE_PASSWORD }}
       SKACHAY_KEY_ALIAS: ${{ secrets.SKACHAY_KEY_ALIAS }}
       SKACHAY_KEY_PASSWORD: ${{ secrets.SKACHAY_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - name: Установить Android SDK
         run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Подготовить ключ подписи
@@ -107,12 +154,17 @@ jobs:
           keystore="$RUNNER_TEMP/skachay-release.jks"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
           printf 'SKACHAY_KEYSTORE_PATH=%s\n' "$keystore" >> "$GITHUB_ENV"
+      - name: Проверить зависимости на известные уязвимости
+        uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
+        with:
+          scan-args: |-
+            --lockfile=./app/gradle.lockfile
       - name: Собрать и проверить подпись
         shell: bash
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          ./gradlew --no-daemon "-PreleaseVersion=$version" testDebugUnitTest assembleRelease
+          ./gradlew --no-daemon "-PreleaseVersion=$version" testDebugUnitTest lintDebug ktlintCheck assembleRelease
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
       - name: Создать выпуск с APK
         env:
@@ -127,12 +179,13 @@ jobs:
           - Отдельный белый значок уведомлений «Скачай».
           - Очередь Room с паузой, продолжением, отменой и повтором; после перезапуска доступен повтор с начала.
           - Сохранение в выбранную папку, настраиваемый шаблон имени, фильтры, поиск и пакетная отправка из недавних.
-          - Упрощённый выбор качества показывает совместимые видео и аудио с оценкой размера; расширенный режим сохраняет полный список форматов, битрейты, выбор папки и настройки субтитров/миниатюры.
+          - Один экран выбора видео и аудио показывает полные подписи качества и битрейт; «Дополнительно» раскрывает точные форматы, субтитры, папку и настройки миниатюры.
           - Чистые ссылки YouTube на плейлисты скачивают весь список после подтверждения; ссылка на отдельное видео с `list=` скачивает только это видео.
           - В диагностике добавлены скорость, объём, оставшееся время, этапы загрузки и состояние VPN.
           - Первый запуск, быстрый ярлык, Quick Settings tile, пакетная вставка ссылок и поиск в недавних.
           - Уведомления показывают название видео, группируют загрузки и дают открыть или отправить готовый файл.
-          - Тёмная тема и экран настроек подправлены для крупного шрифта; качество переносится на новые строки.
+          - Карточки настроек и выбор качества адаптируются к крупному шрифту без обрезанных подписей.
+          - Проверки ссылок и адресов усилены; соединения yt-dlp проходят через allowlist-прокси, а транзитивные JSON/архивные библиотеки обновлены.
           - В расширенном режиме можно ограничить битрейт исходного видео YouTube без перекодирования.
 
           ## Как установить

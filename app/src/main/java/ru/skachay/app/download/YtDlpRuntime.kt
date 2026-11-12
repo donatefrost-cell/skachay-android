@@ -1,35 +1,39 @@
 package ru.skachay.app.download
 
 import android.content.Context
+import androidx.core.content.edit
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import ru.skachay.app.choice.AvailableFormat
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.DownloadStage
+import ru.skachay.app.diagnostics.YtDlpProgress
+import ru.skachay.app.diagnostics.YtDlpProgressParser
+import ru.skachay.app.diagnostics.YtDlpWarningParser
+import ru.skachay.app.diagnostics.providerFor
+import ru.skachay.app.diagnostics.stageFromYtDlpOutput
+import ru.skachay.app.network.GuardedYtDlpProxy
+import ru.skachay.app.settings.EngineChannel
+import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.SettingsRepository
+import ru.skachay.app.settings.VideoBitrateLimit
 import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import ru.skachay.app.settings.EngineChannel
-import ru.skachay.app.settings.Quality
-import ru.skachay.app.settings.VideoBitrateLimit
-import ru.skachay.app.settings.SettingsRepository
-import ru.skachay.app.diagnostics.DownloadStage
-import ru.skachay.app.diagnostics.stageFromYtDlpOutput
-import ru.skachay.app.diagnostics.YtDlpProgress
-import ru.skachay.app.diagnostics.YtDlpProgressParser
-import ru.skachay.app.diagnostics.YtDlpWarningParser
-import ru.skachay.app.diagnostics.DiagnosticsStore
-import ru.skachay.app.diagnostics.providerFor
-import ru.skachay.app.choice.AvailableFormat
 
 internal enum class EngineUpdateResult { UPDATED, ALREADY_CURRENT }
 
 internal object YtDlpRuntime {
     private val initialization = Any()
     private val runtimeLock = ReentrantReadWriteLock()
+
     @Volatile private var initialized = false
+
     @Volatile private var initializationDurationMs: Long? = null
     private const val DAY_MS = 24 * 60 * 60 * 1000L
 
@@ -53,27 +57,41 @@ internal object YtDlpRuntime {
         }
     }
 
-    fun updateNow(context: Context, channel: EngineChannel): EngineUpdateResult = when (update(context, channel)) {
-        YoutubeDL.UpdateStatus.DONE -> EngineUpdateResult.UPDATED
-        YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> EngineUpdateResult.ALREADY_CURRENT
-        null -> error("Manual update was unexpectedly skipped")
-    }
+    fun updateNow(
+        context: Context,
+        channel: EngineChannel,
+    ): EngineUpdateResult =
+        when (update(context, channel)) {
+            YoutubeDL.UpdateStatus.DONE -> EngineUpdateResult.UPDATED
+            YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> EngineUpdateResult.ALREADY_CURRENT
+            null -> error("Manual update was unexpectedly skipped")
+        }
 
-    private fun selectedChannel(context: Context): EngineChannel = runBlocking {
-        SettingsRepository.forContext(context).settings.first().engineChannel
-    }
+    private fun selectedChannel(context: Context): EngineChannel =
+        runBlocking {
+            SettingsRepository
+                .forContext(context)
+                .settings
+                .first()
+                .engineChannel
+        }
 
-    private fun update(context: Context, channel: EngineChannel, onlyIfDue: Boolean = false): YoutubeDL.UpdateStatus? {
+    private fun update(
+        context: Context,
+        channel: EngineChannel,
+        onlyIfDue: Boolean = false,
+    ): YoutubeDL.UpdateStatus? {
         initialize(context)
         return runtimeLock.write {
             val prefs = context.getSharedPreferences("engine", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
             if (onlyIfDue && now - prefs.getLong("last_update_attempt", 0) < DAY_MS) return@write null
-            prefs.edit().putLong("last_update_attempt", now).apply()
-            val source = when (channel) {
-                EngineChannel.STABLE -> YoutubeDL.UpdateChannel.STABLE
-                EngineChannel.NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
-            }
+            prefs.edit { putLong("last_update_attempt", now) }
+            val source =
+                when (channel) {
+                    EngineChannel.STABLE -> YoutubeDL.UpdateChannel.STABLE
+                    EngineChannel.NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
+                }
             YoutubeDL.updateYoutubeDL(context.applicationContext, source)
         }
     }
@@ -84,15 +102,27 @@ internal object YtDlpRuntime {
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
     ): String {
         initialize(context)
-        val retries = runBlocking { SettingsRepository.forContext(context).settings.first().retries }
+        val retries =
+            runBlocking {
+                SettingsRepository
+                    .forContext(context)
+                    .settings
+                    .first()
+                    .retries
+            }
         return RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
-                    val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
-                        .addOption("--no-playlist").addOption("--skip-download").addOption("--dump-single-json")
+                    val request =
+                        com.yausername.youtubedl_android
+                            .YoutubeDLRequest(url)
+                            .addOption("--no-playlist")
+                            .addOption("--skip-download")
+                            .addOption("--dump-single-json")
+                            .addOption("--socket-timeout", 30)
                     YtDlpOptions.addRetries(request, retries)
                     addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(request, onWarnings = onWarnings).out
+                    executeWithWarningCapture(request, sourceUrl = url, onWarnings = onWarnings).out
                 }
             },
             update = { update(context, selectedChannel(context)) },
@@ -126,17 +156,39 @@ internal object YtDlpRuntime {
             operation = {
                 runtimeLock.read {
                     onStage(DownloadStage.EXTRACTION)
-                    val request = YtDlpOptions.request(
-                        url, template, quality, infoJson?.absolutePath, selected, videoOnly, retries,
-                        audioExport, audioBitrate, subtitleLanguage, subtitleAutomatic, embedSubtitles, videoBitrateLimit, embedThumbnail,
-                    )
+                    val request =
+                        YtDlpOptions.request(
+                            url,
+                            template,
+                            quality,
+                            infoJson?.absolutePath,
+                            selected,
+                            videoOnly,
+                            retries,
+                            audioExport,
+                            audioBitrate,
+                            subtitleLanguage,
+                            subtitleAutomatic,
+                            embedSubtitles,
+                            videoBitrateLimit,
+                            embedThumbnail,
+                        )
                     addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(request, UUID.randomUUID().toString(), { progress, _, line ->
-                        stageFromYtDlpOutput(line)?.let(onStage)
-                        val detailed = YtDlpProgressParser.parse(line)
-                        if (detailed != null) onDetailedProgress(detailed)
-                        else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
-                    }, onWarnings)
+                    executeWithWarningCapture(
+                        request = request,
+                        sourceUrl = url,
+                        processId = UUID.randomUUID().toString(),
+                        callback = { progress, _, line ->
+                            stageFromYtDlpOutput(line)?.let(onStage)
+                            val detailed = YtDlpProgressParser.parse(line)
+                            if (detailed != null) {
+                                onDetailedProgress(detailed)
+                            } else {
+                                onProgress(progress.takeIf { it in 0f..100f }?.toInt())
+                            }
+                        },
+                        onWarnings = onWarnings,
+                    )
                 }
             },
             update = { update(context, selectedChannel(context)) },
@@ -173,36 +225,50 @@ internal object YtDlpRuntime {
             operation = {
                 runtimeLock.read {
                     onStage(DownloadStage.EXTRACTION)
-                    val request = YtDlpOptions.request(
-                        url = url,
-                        output = template,
-                        quality = quality,
-                        retries = retries,
-                        audioExport = audioExport,
-                        audioBitrate = audioBitrate,
-                        subtitleLanguage = subtitleLanguage,
-                        subtitleAutomatic = subtitleAutomatic,
-                        embedSubtitles = embedSubtitles,
-                        videoBitrateLimit = videoBitrateLimit,
-                        embedThumbnail = embedThumbnail,
-                        allowPlaylist = true,
-                        playlistAudioOnly = audioOnly,
-                    )
+                    val request =
+                        YtDlpOptions.request(
+                            url = url,
+                            output = template,
+                            quality = quality,
+                            retries = retries,
+                            audioExport = audioExport,
+                            audioBitrate = audioBitrate,
+                            subtitleLanguage = subtitleLanguage,
+                            subtitleAutomatic = subtitleAutomatic,
+                            embedSubtitles = embedSubtitles,
+                            videoBitrateLimit = videoBitrateLimit,
+                            embedThumbnail = embedThumbnail,
+                            allowPlaylist = true,
+                            playlistAudioOnly = audioOnly,
+                        )
                     addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(request, UUID.randomUUID().toString(), { progress, _, line ->
-                        stageFromYtDlpOutput(line)?.let(onStage)
-                        val detailed = YtDlpProgressParser.parse(line)
-                        if (detailed != null) onDetailedProgress(detailed)
-                        else onProgress(progress.takeIf { it in 0f..100f }?.toInt())
-                    }, onWarnings)
+                    executeWithWarningCapture(
+                        request = request,
+                        sourceUrl = url,
+                        processId = UUID.randomUUID().toString(),
+                        callback = { progress, _, line ->
+                            stageFromYtDlpOutput(line)?.let(onStage)
+                            val detailed = YtDlpProgressParser.parse(line)
+                            if (detailed != null) {
+                                onDetailedProgress(detailed)
+                            } else {
+                                onProgress(progress.takeIf { it in 0f..100f }?.toInt())
+                            }
+                        },
+                        onWarnings = onWarnings,
+                    )
                 }
             },
             update = { update(context, selectedChannel(context)) },
         )
-        val files = directory.listFiles().orEmpty().filter { file ->
-            file.isFile && !file.name.endsWith(".part", true) && !file.name.endsWith(".ytdl", true) &&
-                file.extension.lowercase() !in setOf("srt", "vtt", "json", "jpg", "jpeg", "png", "webp", "description")
-        }.sortedBy { it.name }
+        val files =
+            directory
+                .listFiles()
+                .orEmpty()
+                .filter { file ->
+                    file.isFile && !file.name.endsWith(".part", true) && !file.name.endsWith(".ytdl", true) &&
+                        file.extension.lowercase() !in setOf("srt", "vtt", "json", "jpg", "jpeg", "png", "webp", "description")
+                }.sortedBy { it.name }
         if (files.isEmpty()) throw IOException("No playlist media files produced")
         return files
     }
@@ -217,15 +283,22 @@ internal object YtDlpRuntime {
 
     private fun executeWithWarningCapture(
         request: com.yausername.youtubedl_android.YoutubeDLRequest,
+        sourceUrl: String,
         processId: String? = null,
         callback: ((Float, Long, String) -> Unit)? = null,
         onWarnings: (List<String>) -> Unit,
-    ): com.yausername.youtubedl_android.YoutubeDLResponse = try {
-        YoutubeDL.execute(request, processId, callback).also { response ->
-            YtDlpWarningParser.parse(response.err).takeIf { it.isNotEmpty() }?.let(onWarnings)
+    ): com.yausername.youtubedl_android.YoutubeDLResponse =
+        try {
+            GuardedYtDlpProxy(sourceUrl).use { proxy ->
+                request.addOption("--ignore-config")
+                request.addOption("--downloader", "native")
+                request.addOption("--proxy", proxy.url)
+                YoutubeDL.execute(request, processId, callback).also { response ->
+                    YtDlpWarningParser.parse(response.err).takeIf { it.isNotEmpty() }?.let(onWarnings)
+                }
+            }
+        } catch (error: Exception) {
+            YtDlpWarningParser.parse(error.message.orEmpty()).takeIf { it.isNotEmpty() }?.let(onWarnings)
+            throw error
         }
-    } catch (error: Exception) {
-        YtDlpWarningParser.parse(error.message.orEmpty()).takeIf { it.isNotEmpty() }?.let(onWarnings)
-        throw error
-    }
 }

@@ -4,7 +4,9 @@ import java.io.InterruptedIOException
 
 internal class DownloadControl {
     private val lock = Object()
+
     @Volatile private var paused = false
+
     @Volatile private var cancelled = false
 
     fun pause() {
@@ -27,6 +29,7 @@ internal class DownloadControl {
     }
 
     fun isPaused(): Boolean = paused
+
     fun isCancelled(): Boolean = cancelled
 
     fun checkpoint() {

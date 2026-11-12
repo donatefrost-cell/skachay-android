@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:function-naming")
+
 package ru.skachay.app
 
 import android.Manifest
@@ -6,62 +8,67 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -72,8 +79,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -85,51 +92,57 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import ru.skachay.app.choice.PreviewStore
+import ru.skachay.app.choice.SocialPreviewStore
+import ru.skachay.app.choice.VideoPreview
+import ru.skachay.app.diagnostics.DiagnosticsScreen
+import ru.skachay.app.diagnostics.formatDuration
+import ru.skachay.app.diagnostics.formatSpeed
+import ru.skachay.app.download.DownloadFolderGrantRegistry
 import ru.skachay.app.download.EngineUpdateResult
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.ResolvedMedia
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.YtDlpRuntime
-import ru.skachay.app.choice.PreviewStore
-import ru.skachay.app.choice.SocialPreviewStore
-import ru.skachay.app.choice.VideoPreview
-import ru.skachay.app.download.DownloadFolderGrantRegistry
+import ru.skachay.app.queue.DownloadQueueDatabase
+import ru.skachay.app.queue.DownloadQueueEntry
+import ru.skachay.app.queue.DownloadQueueStatus
 import ru.skachay.app.settings.AppSettings
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.EngineChannel
 import ru.skachay.app.settings.Quality
+import ru.skachay.app.settings.QualityPresetPresentation
 import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.ShareMode
 import ru.skachay.app.settings.UserMode
 import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.settings.qualityFor
-import ru.skachay.app.queue.DownloadQueueDatabase
-import ru.skachay.app.queue.DownloadQueueEntry
-import ru.skachay.app.queue.DownloadQueueStatus
 import ru.skachay.app.updates.UpdateBanner
 import ru.skachay.app.updates.UpdateCheckButton
-import ru.skachay.app.diagnostics.DiagnosticsScreen
-import ru.skachay.app.diagnostics.formatDuration
-import ru.skachay.app.diagnostics.formatSpeed
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -152,17 +165,27 @@ class MainActivity : ComponentActivity() {
                     }
                     val currentDensity = LocalDensity.current
                     val largeMode = settings?.largeMode == true
-                    CompositionLocalProvider(LocalDensity provides Density(currentDensity.density, maxOf(currentDensity.fontScale, if (largeMode) 1.2f else 1f))) {
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(currentDensity.density, maxOf(currentDensity.fontScale, if (largeMode) 1.2f else 1f)),
+                    ) {
                         when (val current = settings) {
-                            null -> Unit
-                            else -> if (!current.onboardingComplete) {
-                                WelcomeScreen { mode -> scope.launch { repository.selectMode(mode) } }
-                            } else if (showDiagnostics) {
-                                DiagnosticsScreen(onBack = { showDiagnostics = false })
-                            } else if (showSettings) {
-                                SettingsScreen(current, repository, onBack = { showSettings = false }, onDiagnostics = { showDiagnostics = true })
-                            } else {
-                                HomeScreen(current, refresh, onSettings = { showSettings = true })
+                            null -> {
+                                Unit
+                            }
+
+                            else -> {
+                                if (!current.onboardingComplete) {
+                                    WelcomeScreen { mode -> scope.launch { repository.selectMode(mode) } }
+                                } else if (showDiagnostics) {
+                                    DiagnosticsScreen(onBack = { showDiagnostics = false })
+                                } else if (showSettings) {
+                                    SettingsScreen(current, repository, onBack = { showSettings = false }, onDiagnostics = {
+                                        showDiagnostics =
+                                            true
+                                    })
+                                } else {
+                                    HomeScreen(current, refresh, onSettings = { showSettings = true })
+                                }
                             }
                         }
                     }
@@ -183,8 +206,10 @@ private fun WelcomeScreen(onChoose: (UserMode) -> Unit) {
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Скачай", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
-            if (page > 0) IconButton(onClick = { page-- }, modifier = Modifier.size(56.dp)) {
-                Icon(painterResource(R.drawable.ic_back), contentDescription = "Назад", tint = MaterialTheme.colorScheme.onSurface)
+            if (page > 0) {
+                IconButton(onClick = { page-- }, modifier = Modifier.size(56.dp)) {
+                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Назад", tint = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
         if (page < 3) {
@@ -210,10 +235,16 @@ private fun WelcomeScreen(onChoose: (UserMode) -> Unit) {
             Text("Как вам удобнее?", style = MaterialTheme.typography.headlineMedium)
             Text("Режим можно изменить в настройках в любое время.")
             Button(onClick = { onChoose(UserMode.SIMPLE) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
-                Column { Text("Просто", style = MaterialTheme.typography.titleLarge); Text("Всё необходимое — автоматически") }
+                Column {
+                    Text("Просто", style = MaterialTheme.typography.titleLarge)
+                    Text("Всё необходимое — автоматически")
+                }
             }
             FilledTonalButton(onClick = { onChoose(UserMode.ADVANCED) }, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
-                Column { Text("Для опытных", style = MaterialTheme.typography.titleLarge); Text("Больше настроек скачивания") }
+                Column {
+                    Text("Для опытных", style = MaterialTheme.typography.titleLarge)
+                    Text("Больше настроек скачивания")
+                }
             }
         }
     }
@@ -243,7 +274,12 @@ private fun OnboardingIllustration(step: Int) {
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_download), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Icon(
+                    painterResource(R.drawable.ic_download),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
                 Text("Скачай", Modifier.padding(start = 16.dp).weight(1f), style = MaterialTheme.typography.titleMedium)
                 Text("Готово", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
@@ -252,14 +288,24 @@ private fun OnboardingIllustration(step: Int) {
 }
 
 @Composable
-private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Unit) {
+private fun HomeScreen(
+    settings: AppSettings,
+    refresh: Int,
+    onSettings: () -> Unit,
+) {
     val context = LocalContext.current
     var link by remember { mutableStateOf("") }
-    val clipboardUrls = remember(refresh) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
-        SharedUrl.allIn(text).take(20)
-    }
+    val clipboardUrls =
+        remember(refresh) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val text =
+                clipboard.primaryClip
+                    ?.takeIf { it.itemCount > 0 }
+                    ?.getItemAt(0)
+                    ?.coerceToText(context)
+                    ?.toString()
+            SharedUrl.allIn(text).take(20)
+        }
     val snackbar = remember { SnackbarHostState() }
     val firstUrl = remember(link) { SharedUrl.firstIn(link) }
     val urls = remember(link) { SharedUrl.allIn(link).take(20) }
@@ -279,31 +325,40 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
         }
         previewState = HomePreviewState.Loading
         delay(350)
-        previewState = try {
-            withContext(Dispatchers.IO) {
-                when {
-                    SourceType.isYouTube(url) -> HomePreviewState.Video(PreviewStore.getOrFetch(context.applicationContext, url).preview)
-                    InstagramLink.supports(url) || TikTokLink.supports(url) -> {
-                        val preview = SocialPreviewStore.getOrFetch(context.applicationContext, url)
-                        HomePreviewState.Social(
-                            count = preview.items.size,
-                            thumbnailUrl = preview.items.firstOrNull { it.type == ResolvedMedia.Kind.IMAGE }?.url,
-                        )
+        previewState =
+            try {
+                withContext(Dispatchers.IO) {
+                    when {
+                        SourceType.isYouTube(url) -> {
+                            HomePreviewState.Video(PreviewStore.getOrFetch(context.applicationContext, url).preview)
+                        }
+
+                        InstagramLink.supports(url) || TikTokLink.supports(url) -> {
+                            val preview = SocialPreviewStore.getOrFetch(context.applicationContext, url)
+                            HomePreviewState.Social(
+                                count = preview.items.size,
+                                thumbnailUrl = preview.items.firstOrNull { it.type == ResolvedMedia.Kind.IMAGE }?.url,
+                            )
+                        }
+
+                        else -> {
+                            HomePreviewState.Empty
+                        }
                     }
-                    else -> HomePreviewState.Empty
                 }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                HomePreviewState.Failed
             }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            HomePreviewState.Failed
-        }
     }
 
     fun openChooser(url: String) {
-        context.startActivity(Intent(context, ChoiceActivity::class.java)
-            .putExtra(DownloadService.EXTRA_URL, url)
-            .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name))
+        context.startActivity(
+            Intent(context, ChoiceActivity::class.java)
+                .putExtra(DownloadService.EXTRA_URL, url)
+                .putExtra(DownloadService.EXTRA_QUALITY, settings.qualityForUrl(url).name),
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -311,7 +366,11 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Скачай", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
                 IconButton(onClick = onSettings, modifier = Modifier.size(56.dp)) {
-                    Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки", tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        painterResource(R.drawable.ic_settings),
+                        contentDescription = "Настройки",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
             UpdateBanner()
@@ -327,14 +386,30 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
                 trailingIcon = {
                     if (link.isNotBlank()) {
                         IconButton(onClick = { link = "" }) {
-                            Icon(painterResource(R.drawable.ic_clear), contentDescription = "Очистить ссылку", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(
+                                painterResource(R.drawable.ic_clear),
+                                contentDescription = "Очистить ссылку",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     } else {
                         IconButton(onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            link = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().take(20_000)
+                            link =
+                                clipboard.primaryClip
+                                    ?.takeIf { it.itemCount > 0 }
+                                    ?.getItemAt(
+                                        0,
+                                    )?.coerceToText(context)
+                                    ?.toString()
+                                    .orEmpty()
+                                    .take(20_000)
                         }) {
-                            Icon(painterResource(R.drawable.ic_paste), contentDescription = "Вставить ссылку", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(
+                                painterResource(R.drawable.ic_paste),
+                                contentDescription = "Вставить ссылку",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 },
@@ -347,19 +422,25 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
                 },
             )
             when {
-                firstUrl != null && urls.size == 1 -> HomePreviewCard(
-                    url = firstUrl,
-                    state = previewState,
-                    quality = settings.qualityForUrl(firstUrl).label,
-                    onOpen = { openChooser(firstUrl) },
-                )
-                urls.size > 1 -> Card(
-                    Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Несколько ссылок", style = MaterialTheme.typography.titleMedium)
-                        Text("Будет добавлено до ${urls.size} загрузок.", style = MaterialTheme.typography.bodyMedium)
+                firstUrl != null && urls.size == 1 -> {
+                    HomePreviewCard(
+                        url = firstUrl,
+                        state = previewState,
+                        quality = settings.qualityForUrl(firstUrl).label,
+                        onOpen = { openChooser(firstUrl) },
+                    )
+                }
+
+                urls.size > 1 -> {
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Несколько ссылок", style = MaterialTheme.typography.titleMedium)
+                            Text("Будет добавлено до ${urls.size} загрузок.", style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }
@@ -370,11 +451,13 @@ private fun HomeScreen(settings: AppSettings, refresh: Int, onSettings: () -> Un
                 },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             ) {
-                Text(when {
-                    urls.size > 1 -> "Продолжить · ${urls.size} ссылок"
-                    urls.size == 1 -> "Выбрать качество"
-                    else -> "Вставьте ссылку"
-                })
+                Text(
+                    when {
+                        urls.size > 1 -> "Продолжить · ${urls.size} ссылок"
+                        urls.size == 1 -> "Выбрать качество"
+                        else -> "Вставьте ссылку"
+                    },
+                )
             }
             DownloadQueueSection()
             PermissionPrompt()
@@ -393,7 +476,11 @@ private fun DownloadQueueSection() {
     val context = LocalContext.current
     val entries by remember(context) { DownloadQueueDatabase.get(context).queue().observeRecent() }
         .collectAsState(initial = emptyList())
-    val visible = entries.filter { it.status in setOf(DownloadQueueStatus.QUEUED, DownloadQueueStatus.RUNNING, DownloadQueueStatus.PAUSED, DownloadQueueStatus.FAILED) }
+    val visible =
+        entries.filter {
+            it.status in
+                setOf(DownloadQueueStatus.QUEUED, DownloadQueueStatus.RUNNING, DownloadQueueStatus.PAUSED, DownloadQueueStatus.FAILED)
+        }
     if (visible.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Загрузки", style = MaterialTheme.typography.titleMedium)
@@ -402,12 +489,20 @@ private fun DownloadQueueSection() {
 }
 
 @Composable
-private fun DownloadQueueCard(entry: DownloadQueueEntry) {
+private fun DownloadQueueCard(
+    entry: DownloadQueueEntry,
+    loadThumbnail: Boolean = true,
+) {
     val context = LocalContext.current
     val thumbnailUrl by produceState<String?>(initialValue = null, entry.url) {
-        value = withContext(Dispatchers.IO) {
-            PreviewStore.load(context, entry.url, forDownload = true)?.preview?.thumbnailUrl
-        }
+        value =
+            if (loadThumbnail) {
+                withContext(Dispatchers.IO) {
+                    PreviewStore.load(context, entry.url, forDownload = true)?.preview?.thumbnailUrl
+                }
+            } else {
+                null
+            }
     }
     Card(
         Modifier.fillMaxWidth(),
@@ -417,8 +512,13 @@ private fun DownloadQueueCard(entry: DownloadQueueEntry) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PreviewThumbnail(thumbnailUrl)
-                Text(entry.title, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(
+                    entry.title,
+                    Modifier.weight(1f).padding(start = 12.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
             }
             Text(
                 when (entry.status) {
@@ -429,26 +529,44 @@ private fun DownloadQueueCard(entry: DownloadQueueEntry) {
                     else -> ""
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (entry.status == DownloadQueueStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                color =
+                    if (entry.status ==
+                        DownloadQueueStatus.FAILED
+                    ) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 maxLines = 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             if (entry.status == DownloadQueueStatus.RUNNING || entry.status == DownloadQueueStatus.QUEUED) {
                 val progress = (entry.percent ?: 0).coerceIn(0, 100) / 100f
-                if (entry.percent == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-                else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                if (entry.percent == null) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (entry.status) {
-                    DownloadQueueStatus.RUNNING, DownloadQueueStatus.QUEUED -> TextButton(onClick = {
-                        sendQueueAction(context, entry.id, DownloadService.ACTION_PAUSE)
-                    }) { Text("Пауза") }
-                    DownloadQueueStatus.PAUSED -> TextButton(onClick = {
-                        sendQueueAction(context, entry.id, DownloadService.ACTION_RESUME)
-                    }) { Text("Продолжить") }
-                    DownloadQueueStatus.FAILED -> TextButton(onClick = {
-                        sendQueueAction(context, entry.id, DownloadService.ACTION_RETRY)
-                    }) { Text("Повторить") }
+                    DownloadQueueStatus.RUNNING, DownloadQueueStatus.QUEUED -> {
+                        TextButton(onClick = {
+                            sendQueueAction(context, entry.id, DownloadService.ACTION_PAUSE)
+                        }) { Text("Пауза") }
+                    }
+
+                    DownloadQueueStatus.PAUSED -> {
+                        TextButton(onClick = {
+                            sendQueueAction(context, entry.id, DownloadService.ACTION_RESUME)
+                        }) { Text("Продолжить") }
+                    }
+
+                    DownloadQueueStatus.FAILED -> {
+                        TextButton(onClick = {
+                            sendQueueAction(context, entry.id, DownloadService.ACTION_RETRY)
+                        }) { Text("Повторить") }
+                    }
                 }
                 TextButton(onClick = { sendQueueAction(context, entry.id, DownloadService.ACTION_CANCEL) }) { Text("Отмена") }
             }
@@ -456,59 +574,136 @@ private fun DownloadQueueCard(entry: DownloadQueueEntry) {
     }
 }
 
-private fun queueProgressLabel(context: Context, entry: DownloadQueueEntry): String {
-    val parts = buildList {
-        add(entry.percent?.let { "Загружается · $it%" } ?: "Загружается")
-        if (entry.bytesReceived > 0) {
-            val received = android.text.format.Formatter.formatShortFileSize(context, entry.bytesReceived)
-            val total = entry.totalBytes?.let { " из ${android.text.format.Formatter.formatShortFileSize(context, it)}" }.orEmpty()
-            add("$received$total")
+@Composable
+internal fun DownloadQueueCardPreview() {
+    val now = remember { System.currentTimeMillis() }
+    val entry =
+        remember {
+            DownloadQueueEntry(
+                id = 42,
+                url = "https://www.youtube.com/watch?v=preview",
+                title = "Длинное семейное видео: поездка к озеру и прогулка всей семьёй",
+                requestJson = "{}",
+                status = DownloadQueueStatus.RUNNING,
+                createdAt = now,
+                updatedAt = now,
+                percent = 63,
+                bytesReceived = 19L * 1024 * 1024,
+                totalBytes = 31L * 1024 * 1024,
+                speedBytesPerSecond = 2L * 1024 * 1024,
+            )
         }
-        entry.speedBytesPerSecond?.takeIf { it > 0 }?.let { speed ->
-            add(formatSpeed(speed))
-            entry.totalBytes?.let { total ->
-                val remaining = (total - entry.bytesReceived).coerceAtLeast(0)
-                val millis = remaining.saturatingMultiply(1_000L) / speed
-                add("ещё ${formatDuration(millis)}")
-            }
+    SkachayPreview {
+        Page {
+            Text("Загрузки", style = MaterialTheme.typography.titleLarge)
+            DownloadQueueCard(entry, loadThumbnail = false)
         }
     }
+}
+
+private fun queueProgressLabel(
+    context: Context,
+    entry: DownloadQueueEntry,
+): String {
+    val parts =
+        buildList {
+            add(entry.percent?.let { "Загружается · $it%" } ?: "Загружается")
+            if (entry.bytesReceived > 0) {
+                val received =
+                    android.text.format.Formatter
+                        .formatShortFileSize(context, entry.bytesReceived)
+                val total = entry.totalBytes?.let { " из ${android.text.format.Formatter.formatShortFileSize(context, it)}" }.orEmpty()
+                add("$received$total")
+            }
+            entry.speedBytesPerSecond?.takeIf { it > 0 }?.let { speed ->
+                add(formatSpeed(speed))
+                entry.totalBytes?.let { total ->
+                    val remaining = (total - entry.bytesReceived).coerceAtLeast(0)
+                    val millis = remaining.saturatingMultiply(1_000L) / speed
+                    add("ещё ${formatDuration(millis)}")
+                }
+            }
+        }
     return parts.joinToString(" · ")
 }
 
-private fun Long.saturatingMultiply(other: Long): Long =
-    if (this > Long.MAX_VALUE / other) Long.MAX_VALUE else this * other
+private fun Long.saturatingMultiply(other: Long): Long = if (this > Long.MAX_VALUE / other) Long.MAX_VALUE else this * other
 
-private fun sendQueueAction(context: Context, id: Int, action: String) {
-    val intent = Intent(context, DownloadService::class.java).setAction(action)
-        .putExtra(DownloadService.EXTRA_NOTIFICATION_ID, id)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-    else context.startService(intent)
+private fun sendQueueAction(
+    context: Context,
+    id: Int,
+    action: String,
+) {
+    val intent =
+        Intent(context, DownloadService::class.java)
+            .setAction(action)
+            .putExtra(DownloadService.EXTRA_NOTIFICATION_ID, id)
+    try {
+        context.startForegroundService(intent)
+    } catch (_: Exception) {
+        Toast
+            .makeText(
+                context,
+                "Не удалось выполнить действие с загрузкой. Откройте приложение и попробуйте ещё раз",
+                Toast.LENGTH_LONG,
+            ).show()
+    }
 }
 
 private sealed interface HomePreviewState {
     data object Empty : HomePreviewState
+
     data object Loading : HomePreviewState
+
     data object Failed : HomePreviewState
-    data class Video(val preview: VideoPreview) : HomePreviewState
-    data class Social(val count: Int, val thumbnailUrl: String?) : HomePreviewState
+
+    data class Video(
+        val preview: VideoPreview,
+    ) : HomePreviewState
+
+    data class Social(
+        val count: Int,
+        val thumbnailUrl: String?,
+    ) : HomePreviewState
 }
 
 @Composable
-private fun HomePreviewCard(url: String, state: HomePreviewState, quality: String, onOpen: () -> Unit) {
-    val source = when {
-        SourceType.isYouTube(url) -> "YouTube"
-        InstagramLink.supports(url) -> "Instagram"
-        TikTokLink.supports(url) -> "TikTok"
-        else -> android.net.Uri.parse(url).host.orEmpty()
-    }
-    val thumbnail = when (state) {
-        is HomePreviewState.Video -> state.preview.thumbnailUrl
-        is HomePreviewState.Social -> state.thumbnailUrl
-        else -> null
-    }
+private fun HomePreviewCard(
+    url: String,
+    state: HomePreviewState,
+    quality: String,
+    onOpen: () -> Unit,
+) {
+    val source =
+        when {
+            SourceType.isYouTube(url) -> {
+                "YouTube"
+            }
+
+            InstagramLink.supports(url) -> {
+                "Instagram"
+            }
+
+            TikTokLink.supports(url) -> {
+                "TikTok"
+            }
+
+            else -> {
+                url
+                    .toUri()
+                    .host
+                    .orEmpty()
+            }
+        }
+    val thumbnail =
+        when (state) {
+            is HomePreviewState.Video -> state.preview.thumbnailUrl
+            is HomePreviewState.Social -> state.thumbnailUrl
+            else -> null
+        }
     Card(
-        Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp),
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -516,31 +711,72 @@ private fun HomePreviewCard(url: String, state: HomePreviewState, quality: Strin
                 PreviewThumbnail(thumbnail)
                 Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     when (state) {
-                        HomePreviewState.Empty -> Text("Подготовим выбор файла", style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                        HomePreviewState.Loading -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            HomeSkeletonLine(0.82f, 16.dp)
-                            HomeSkeletonLine(0.58f, 12.dp)
-                            Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HomePreviewState.Empty -> {
+                            Text("Подготовим выбор файла", style = MaterialTheme.typography.titleSmall, maxLines = 2)
                         }
+
+                        HomePreviewState.Loading -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                HomeSkeletonLine(0.82f, 16.dp)
+                                HomeSkeletonLine(0.58f, 12.dp)
+                                Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
                         HomePreviewState.Failed -> {
                             Text("Предпросмотр недоступен", style = MaterialTheme.typography.titleSmall, maxLines = 2)
                             Text("Продолжите — приложение попробует скачать файл.", style = MaterialTheme.typography.bodySmall)
                         }
+
                         is HomePreviewState.Video -> {
-                            Text(state.preview.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text(state.preview.author ?: source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            Text(
+                                state.preview.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                state.preview.author ?: source,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
                         }
+
                         is HomePreviewState.Social -> {
-                            Text(if (state.count == 1) "Публикация готова" else "Файлов: ${state.count}", style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text("$source · оригинальное качество", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            Text(
+                                if (state.count ==
+                                    1
+                                ) {
+                                    "Публикация готова"
+                                } else {
+                                    "Файлов: ${state.count}"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2,
+                            )
+                            Text(
+                                "$source · оригинальное качество",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }
             }
             if (SourceType.isYouTube(url)) {
-                Text("По умолчанию · $quality", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "По умолчанию · $quality",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             } else if (InstagramLink.supports(url) || TikTokLink.supports(url)) {
-                Text("Оригинал · качество доступно по ссылке", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Оригинал · качество доступно по ссылке",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             FilledTonalButton(onClick = onOpen, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                 Text(if (InstagramLink.supports(url) || TikTokLink.supports(url)) "Выбрать файлы" else "Открыть выбор качества")
@@ -550,19 +786,30 @@ private fun HomePreviewCard(url: String, state: HomePreviewState, quality: Strin
 }
 
 @Composable
-private fun HomeSkeletonLine(widthFraction: Float, height: androidx.compose.ui.unit.Dp) {
-    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "home preview shimmer")
+private fun HomeSkeletonLine(
+    widthFraction: Float,
+    height: androidx.compose.ui.unit.Dp,
+) {
+    val transition =
+        androidx.compose.animation.core
+            .rememberInfiniteTransition(label = "home preview shimmer")
     val alpha by transition.animateFloat(
         initialValue = 0.35f,
         targetValue = 0.8f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(850),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-        ),
+        animationSpec =
+            androidx.compose.animation.core.infiniteRepeatable(
+                animation =
+                    androidx.compose.animation.core
+                        .tween(850),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+            ),
         label = "home preview shimmer alpha",
     )
     Box(
-        Modifier.fillMaxWidth(widthFraction).heightIn(min = height).clip(RoundedCornerShape(6.dp))
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .heightIn(min = height)
+            .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = alpha)),
     )
 }
@@ -573,41 +820,56 @@ private fun PreviewThumbnail(url: String?) {
         value = url?.let { imageUrl -> withContext(Dispatchers.IO) { loadThumbnail(imageUrl, maxDimension = 320) } }
     }
     Box(
-        Modifier.size(width = 104.dp, height = 60.dp).clip(RoundedCornerShape(12.dp))
+        Modifier
+            .size(width = 104.dp, height = 60.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface),
     ) {
-        if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        val image = bitmap?.asImageBitmap()
+        if (image != null) {
+            Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            Icon(painterResource(R.drawable.ic_download), contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.Center).size(24.dp))
+            Icon(
+                painterResource(R.drawable.ic_download),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.Center).size(24.dp),
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onDiagnostics: () -> Unit) {
+private fun SettingsScreen(
+    settings: AppSettings,
+    repository: SettingsRepository,
+    onBack: () -> Unit,
+    onDiagnostics: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var showQualitySheet by remember { mutableStateOf(false) }
     var showPlatformQualitySheet by remember { mutableStateOf(false) }
     var showFileNameDialog by remember { mutableStateOf(false) }
     var fileNameTemplateDraft by remember(settings.fileNameTemplate) { mutableStateOf(settings.fileNameTemplate ?: "{title}") }
     val context = LocalContext.current
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                )
-                DownloadFolderGrantRegistry.setSelected(context, uri.toString())
-                scope.launch { repository.setDownloadFolderUri(uri.toString()) }
-            } catch (_: SecurityException) {
-                android.widget.Toast.makeText(context, "Не удалось сохранить доступ к папке", android.widget.Toast.LENGTH_LONG).show()
+    val folderPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    DownloadFolderGrantRegistry.setSelected(context, uri.toString())
+                    scope.launch { repository.setDownloadFolderUri(uri.toString()) }
+                } catch (_: SecurityException) {
+                    android.widget.Toast
+                        .makeText(context, "Не удалось сохранить доступ к папке", android.widget.Toast.LENGTH_LONG)
+                        .show()
+                }
             }
         }
-    }
     Page {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.size(56.dp)) {
@@ -615,15 +877,16 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
             Text("Настройки", style = MaterialTheme.typography.headlineMedium)
         }
-        SettingsSection("Режим") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsCard("Режим") {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Выберите, сколько настроек показывать.", style = MaterialTheme.typography.bodyMedium)
                 SegmentedPicker(
-                    listOf(UserMode.SIMPLE to "Просто", UserMode.ADVANCED to "Для опытных"), settings.mode,
+                    listOf(UserMode.SIMPLE to "Просто", UserMode.ADVANCED to "Для опытных"),
+                    settings.mode,
                 ) { mode -> scope.launch { repository.selectMode(mode) } }
             }
         }
-        SettingsSection("Качество") {
+        SettingsCard("Качество") {
             Column {
                 SettingsRow(
                     "Качество по умолчанию",
@@ -655,9 +918,14 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
             }
         }
         if (settings.mode == UserMode.ADVANCED) {
-            SettingsSection("Скачивание") {
+            SettingsCard("Скачивание") {
                 Column {
-                    SegmentSetting("При отправке ссылки", "", listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"), settings.shareMode) {
+                    SegmentSetting(
+                        "При отправке ссылки",
+                        "",
+                        listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"),
+                        settings.shareMode,
+                    ) {
                         scope.launch { repository.setShareMode(it) }
                     }
                     SectionDivider()
@@ -665,12 +933,15 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         scope.launch { repository.setParallelDownloads(it) }
                     }
                     SectionDivider()
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Text("Соединений на загрузку · ${settings.connections}", style = MaterialTheme.typography.titleSmall)
                         Slider(
-                            value = settings.connections.toFloat(), onValueChange = { value ->
+                            value = settings.connections.toFloat(),
+                            onValueChange = { value ->
                                 scope.launch { repository.setConnections(value.roundToInt()) }
-                            }, valueRange = 1f..16f, steps = 14,
+                            },
+                            valueRange = 1f..16f,
+                            steps = 14,
                         )
                     }
                     SectionDivider()
@@ -678,12 +949,16 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                         scope.launch { repository.setRetries(it) }
                     }
                     SectionDivider()
-                    SettingsRow("Только по Wi-Fi", "Не расходовать мобильный интернет", R.drawable.ic_wifi,
+                    SettingsRow(
+                        "Только по Wi-Fi",
+                        "Не расходовать мобильный интернет",
+                        R.drawable.ic_wifi,
                         trailing = { Switch(checked = settings.wifiOnly, onCheckedChange = null) },
-                        onClick = { scope.launch { repository.setWifiOnly(!settings.wifiOnly) } })
+                        onClick = { scope.launch { repository.setWifiOnly(!settings.wifiOnly) } },
+                    )
                 }
             }
-            SettingsSection("Файлы") {
+            SettingsCard("Файлы") {
                 Column {
                     SettingsRow(
                         "Папка сохранения",
@@ -707,42 +982,54 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                     SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
                 }
             }
-            SettingsSection("Движок") {
+            SettingsCard("Движок") {
                 EngineUpdateControl(settings.engineChannel, repository)
             }
-            SettingsSection("Память и история") { StorageControls() }
+            SettingsCard("Память и история") { StorageControls() }
         }
-        SettingsSection("Удобство") {
-            SettingsRow("Крупный режим", "Увеличивает текст и упрощает чтение", R.drawable.ic_info,
+        SettingsCard("Удобство") {
+            SettingsRow(
+                "Крупный режим",
+                "Увеличивает текст и упрощает чтение",
+                R.drawable.ic_info,
                 trailing = { Switch(checked = settings.largeMode, onCheckedChange = null) },
-                onClick = { scope.launch { repository.setLargeMode(!settings.largeMode) } })
+                onClick = { scope.launch { repository.setLargeMode(!settings.largeMode) } },
+            )
         }
-        SettingsSection("О приложении") { AboutControls(onDiagnostics) }
+        SettingsCard("О приложении") { AboutControls(onDiagnostics) }
     }
     if (showQualitySheet) {
         ModalBottomSheet(
             onDismissRequest = { showQualitySheet = false },
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         ) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
-                Text("Авто выбирает совместимое видео до 720p. Для этой ссылки можно будет выбрать точный формат.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Авто выбирает совместимое видео до 720p. Для этой ссылки можно будет выбрать точный формат.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 QualityPresetGrid(settings.quality) { preset -> scope.launch { repository.setQuality(preset) } }
                 if (settings.mode == UserMode.ADVANCED) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Text("Предел битрейта", style = MaterialTheme.typography.titleMedium)
-                    Text("Для автоматического выбора исходного видео. Точный формат имеет приоритет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val bitrateLimits = VideoBitrateLimit.entries
-                    val bitrateIndex = bitrateLimits.indexOf(settings.videoBitrateLimit).coerceAtLeast(0)
-                    Slider(
-                        value = bitrateIndex.toFloat(),
-                        onValueChange = { value -> scope.launch { repository.setVideoBitrateLimit(bitrateLimits[value.roundToInt()]) } },
-                        valueRange = 0f..bitrateLimits.lastIndex.toFloat(),
-                        steps = bitrateLimits.size - 2,
+                    Text(
+                        "Для автоматического выбора исходного видео. Точный формат имеет приоритет.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(bitrateLimits[bitrateIndex].label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    BitrateLimitControl(
+                        title = "Предел битрейта",
+                        selected = settings.videoBitrateLimit,
+                        onSelect = { limit -> scope.launch { repository.setVideoBitrateLimit(limit) } },
+                    )
                 }
-                androidx.compose.material3.TextButton(onClick = { showQualitySheet = false }, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
+                androidx.compose.material3.TextButton(
+                    onClick = { showQualitySheet = false },
+                    modifier = Modifier.align(Alignment.End),
+                ) { Text("Готово") }
             }
         }
     }
@@ -756,7 +1043,10 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Качество по приложениям", style = MaterialTheme.typography.headlineSmall)
-                Text("YouTube сохраняет выбранный предел. Instagram и TikTok отдают исходный файл.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "YouTube сохраняет выбранный предел. Instagram и TikTok отдают исходный файл.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 PlatformQualityControl("YouTube", settings.qualityFor(DownloadPlatform.YOUTUBE)) {
                     scope.launch { repository.setPlatformQuality(DownloadPlatform.YOUTUBE, it) }
                 }
@@ -801,12 +1091,22 @@ private fun SettingsScreen(settings: AppSettings, repository: SettingsRepository
 }
 
 private fun settingsFolderLabel(rawUri: String): String {
-    val folder = Uri.parse(rawUri).lastPathSegment.orEmpty().substringAfter(':').substringAfterLast('/')
+    val folder =
+        rawUri
+            .toUri()
+            .lastPathSegment
+            .orEmpty()
+            .substringAfter(':')
+            .substringAfterLast('/')
     return folder.takeIf { it.isNotBlank() }?.let { "Папка «$it»" } ?: "Выбранная папка"
 }
 
 @Composable
-private fun PlatformQualityControl(title: String, selected: Quality, onSelect: (Quality) -> Unit) {
+private fun PlatformQualityControl(
+    title: String,
+    selected: Quality,
+    onSelect: (Quality) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         QualityPresetGrid(selected, onSelect)
@@ -814,39 +1114,104 @@ private fun PlatformQualityControl(title: String, selected: Quality, onSelect: (
 }
 
 @Composable
-private fun QualityPresetGrid(selected: Quality, onSelect: (Quality) -> Unit) {
-    val rows = listOf(
-        listOf(Quality.AUTO, Quality.P144, Quality.P240, Quality.P360, Quality.P480),
-        listOf(Quality.P720, Quality.P1080, Quality.P1440, Quality.P2160, Quality.MAX),
-    )
+@OptIn(ExperimentalLayoutApi::class)
+private fun QualityPresetGrid(
+    selected: Quality,
+    onSelect: (Quality) -> Unit,
+) {
     val effectiveSelection = if (selected == Quality.BEST) Quality.P1080 else selected
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEach { quality ->
-                    FilterChip(
-                        selected = effectiveSelection == quality,
-                        onClick = { onSelect(quality) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(qualityShortName(quality), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                    )
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(QualityPresetPresentation.summary(selected), style = MaterialTheme.typography.titleSmall)
+        Text(
+            QualityPresetPresentation.hint(selected),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            QualityPresetPresentation.options.forEach { option ->
+                val isSelected = effectiveSelection == option.quality
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelect(option.quality) },
+                    modifier =
+                        Modifier
+                            .defaultMinSize(minWidth = 72.dp, minHeight = 48.dp)
+                            .semantics {
+                                contentDescription = "${option.label}, ${if (isSelected) "выбрано" else "не выбрано"}"
+                                stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                            },
+                    label = { Text(option.label, maxLines = 1, softWrap = false) },
+                )
             }
         }
     }
 }
 
-private fun qualityShortName(quality: Quality): String = when (quality) {
-    Quality.AUTO -> "Авто · 720p"
-    Quality.P144 -> "144p"
-    Quality.P240 -> "240p"
-    Quality.P360 -> "360p"
-    Quality.P480 -> "480p"
-    Quality.P720 -> "720p"
-    Quality.P1080, Quality.BEST -> "1080p"
-    Quality.P1440 -> "1440p"
-    Quality.P2160 -> "4K"
-    Quality.MAX -> "Макс"
+private fun qualityShortName(quality: Quality): String = QualityPresetPresentation.label(quality)
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun BitrateLimitControl(
+    title: String,
+    selected: VideoBitrateLimit,
+    onSelect: (VideoBitrateLimit) -> Unit,
+) {
+    val stops = VideoBitrateLimit.stops
+    val selectedIndex = stops.indexOf(selected).coerceAtLeast(0)
+    val fontScale = LocalDensity.current.fontScale
+    val shownIndices =
+        if (fontScale >= 1.5f) {
+            stops.indices.filter { it % 2 == 0 || it == selectedIndex }
+        } else {
+            stops.indices.toList()
+        }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(selected.label, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        Slider(
+            value = selectedIndex.toFloat(),
+            onValueChange = { value -> onSelect(stops[value.roundToInt().coerceIn(stops.indices)]) },
+            valueRange = 0f..stops.lastIndex.toFloat(),
+            steps = stops.size - 2,
+            modifier =
+                Modifier.semantics {
+                    contentDescription = title
+                    stateDescription = selected.label
+                },
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            shownIndices.forEach { index ->
+                val stop = stops[index]
+                val isSelected = index == selectedIndex
+                TextButton(
+                    onClick = { onSelect(stop) },
+                    modifier =
+                        Modifier
+                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics {
+                                contentDescription = "${stop.label}, ${if (isSelected) "выбрано" else "выбрать"}"
+                                stateDescription = if (isSelected) "выбрано" else "не выбрано"
+                            },
+                ) {
+                    Text(
+                        stop.stopCaption,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -860,14 +1225,24 @@ private fun SettingsChevron() {
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun SettingsCard(
+    title: String,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        ) { Column(content = content) }
+        val shape = RoundedCornerShape(28.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().clip(shape),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = content,
+            )
+        }
     }
 }
 
@@ -880,11 +1255,15 @@ private fun SettingsRow(
     onClick: (() -> Unit)? = null,
 ) {
     val clickable = if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)
-    Row(clickable.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(clickable.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
         Column(Modifier.weight(1f).padding(start = 16.dp, end = 12.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
-            if (supporting != null) Text(supporting, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (supporting !=
+                null
+            ) {
+                Text(supporting, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         trailing?.invoke()
     }
@@ -892,11 +1271,15 @@ private fun SettingsRow(
 
 @Composable
 private fun SectionDivider() {
-    HorizontalDivider(Modifier.padding(start = 56.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(Modifier.padding(start = 40.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
-private fun <T> SegmentedPicker(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+private fun <T> SegmentedPicker(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         options.forEachIndexed { index, (value, label) ->
             SegmentedButton(
@@ -909,8 +1292,14 @@ private fun <T> SegmentedPicker(options: List<Pair<T, String>>, selected: T, onS
 }
 
 @Composable
-private fun <T> SegmentSetting(title: String, supporting: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun <T> SegmentSetting(
+    title: String,
+    supporting: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         if (supporting.isNotEmpty()) Text(supporting, style = MaterialTheme.typography.bodyMedium)
         SegmentedPicker(options, selected, onSelect)
@@ -924,7 +1313,7 @@ private fun AboutControls(onDiagnostics: () -> Unit) {
     Column {
         SettingsRow("Скачай", "Версия $version", R.drawable.ic_info)
         SectionDivider()
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             UpdateCheckButton()
             FilledTonalButton(onClick = onDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Диагностика") }
         }
@@ -932,49 +1321,85 @@ private fun AboutControls(onDiagnostics: () -> Unit) {
 }
 
 @Composable
-private fun EngineUpdateControl(channel: EngineChannel, repository: SettingsRepository) {
+private fun EngineUpdateControl(
+    channel: EngineChannel,
+    repository: SettingsRepository,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var updating by remember { mutableStateOf(false) }
     var message by remember(channel) { mutableStateOf<String?>(null) }
-    val lastAttempt = remember {
-        context.getSharedPreferences("engine", Context.MODE_PRIVATE).getLong("last_update_attempt", 0L)
-    }
-    val lastUpdated = if (lastAttempt > 0) java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.forLanguageTag("ru")).format(java.util.Date(lastAttempt)) else "пока не обновлялся"
+    val lastAttempt =
+        remember {
+            context.getSharedPreferences("engine", Context.MODE_PRIVATE).getLong("last_update_attempt", 0L)
+        }
+    val lastUpdated =
+        if (lastAttempt >
+            0
+        ) {
+            java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.forLanguageTag("ru")).format(java.util.Date(lastAttempt))
+        } else {
+            "пока не обновлялся"
+        }
     Column {
-        SegmentSetting("Канал", "Стабильный — проверенный; ночной — новее", listOf(EngineChannel.STABLE to "Стабильный", EngineChannel.NIGHTLY to "Ночной"), channel) { selected ->
+        SegmentSetting(
+            "Канал",
+            "Стабильный — проверенный; ночной — новее",
+            listOf(
+                EngineChannel.STABLE to "Стабильный",
+                EngineChannel.NIGHTLY to "Ночной",
+            ),
+            channel,
+        ) { selected ->
             if (!updating) scope.launch { repository.setEngineChannel(selected) }
         }
         SectionDivider()
-        SettingsRow("Обновить сейчас", "Последняя проверка: $lastUpdated", R.drawable.ic_settings,
-            trailing = { Text(if (updating) "…" else "Обновить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) },
+        SettingsRow(
+            "Обновить сейчас",
+            "Последняя проверка: $lastUpdated",
+            R.drawable.ic_settings,
+            trailing = {
+                Text(
+                    if (updating) "…" else "Обновить",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            },
             onClick = {
-        if (updating) return@SettingsRow
-        updating = true
-        message = null
-        scope.launch {
-            try {
-                message = when (withContext(Dispatchers.IO) { YtDlpRuntime.updateNow(context.applicationContext, channel) }) {
-                    EngineUpdateResult.UPDATED -> "Движок скачивания обновлён."
-                    EngineUpdateResult.ALREADY_CURRENT -> "Установлена последняя версия выбранного канала."
+                if (updating) return@SettingsRow
+                updating = true
+                message = null
+                scope.launch {
+                    try {
+                        message =
+                            when (withContext(Dispatchers.IO) { YtDlpRuntime.updateNow(context.applicationContext, channel) }) {
+                                EngineUpdateResult.UPDATED -> "Движок скачивания обновлён."
+                                EngineUpdateResult.ALREADY_CURRENT -> "Установлена последняя версия выбранного канала."
+                            }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        message = "Не удалось обновить движок. Проверьте интернет и попробуйте снова."
+                    } finally {
+                        updating = false
+                    }
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                message = "Не удалось обновить движок. Проверьте интернет и попробуйте снова."
-            } finally {
-                updating = false
-            }
-        }
-    })
-        message?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium) }
+            },
+        )
+        message?.let { Text(it, Modifier.fillMaxWidth().padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
 @Composable
 private fun Page(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .verticalScroll(
+                    rememberScrollState(),
+                ).padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(Modifier.fillMaxWidth().widthIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
@@ -987,25 +1412,44 @@ private fun PermissionPrompt() {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("permissions", 0) }
     var resultVersion by remember { mutableIntStateOf(0) }
-    val permissions = remember(resultVersion) {
-        buildList {
-            if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
-            if (Build.VERSION.SDK_INT <= 28 && context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    val permissions =
+        remember(resultVersion) {
+            buildList {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                if (Build.VERSION.SDK_INT <= 28 &&
+                    context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            }
         }
-    }
     var showExplanation by remember { mutableStateOf(permissions.isNotEmpty() && !preferences.getBoolean("explained", false)) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resultVersion++ }
-    if (permissions.isNotEmpty()) TextButton(onClick = { showExplanation = true }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Настроить разрешения") }
+    if (permissions.isNotEmpty()) {
+        TextButton(onClick = {
+            showExplanation = true
+        }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Настроить разрешения") }
+    }
     if (showExplanation && permissions.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { showExplanation = false },
             title = { Text("Чтобы вам было удобно") },
-            text = { Text("Уведомления покажут ход и результат скачивания. На старых версиях Android нужен доступ к памяти, чтобы сохранить файл в галерею.") },
-            confirmButton = { TextButton(onClick = {
-                preferences.edit().putBoolean("explained", true).apply()
-                showExplanation = false
-                launcher.launch(permissions.toTypedArray())
-            }) { Text("Продолжить") } },
+            text = {
+                Text(
+                    "Уведомления покажут ход и результат скачивания. На старых версиях Android нужен доступ к памяти, чтобы сохранить файл в галерею.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    preferences.edit { putBoolean("explained", true) }
+                    showExplanation = false
+                    launcher.launch(permissions.toTypedArray())
+                }) { Text("Продолжить") }
+            },
             dismissButton = { TextButton(onClick = { showExplanation = false }) { Text("Позже") } },
         )
     }
@@ -1015,12 +1459,34 @@ private fun PermissionPrompt() {
 internal fun SkachayTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val context = LocalContext.current
-    val colors = when {
-        Build.VERSION.SDK_INT >= 31 && dark -> dynamicDarkColorScheme(context)
-        Build.VERSION.SDK_INT >= 31 -> dynamicLightColorScheme(context)
-        dark -> darkColorScheme(primary = Color(0xFFCECBF6), onPrimary = Color(0xFF201650), secondary = Color(0xFFC7C0FF), tertiary = Color(0xFFB8C8FF))
-        else -> lightColorScheme(primary = Color(0xFF534AB7), onPrimary = Color.White, secondary = Color(0xFF635BBA), tertiary = Color(0xFF485D92))
-    }
+    val colors =
+        when {
+            Build.VERSION.SDK_INT >= 31 && dark -> {
+                dynamicDarkColorScheme(context)
+            }
+
+            Build.VERSION.SDK_INT >= 31 -> {
+                dynamicLightColorScheme(context)
+            }
+
+            dark -> {
+                darkColorScheme(
+                    primary = Color(0xFFCECBF6),
+                    onPrimary = Color(0xFF201650),
+                    secondary = Color(0xFFC7C0FF),
+                    tertiary = Color(0xFFB8C8FF),
+                )
+            }
+
+            else -> {
+                lightColorScheme(
+                    primary = Color(0xFF534AB7),
+                    onPrimary = Color.White,
+                    secondary = Color(0xFF635BBA),
+                    tertiary = Color(0xFF485D92),
+                )
+            }
+        }
     SideEffect {
         (context as? Activity)?.window?.let { window ->
             val controller = WindowInsetsControllerCompat(window, window.decorView)
@@ -1068,13 +1534,14 @@ internal fun HomeLargeModePreview() {
 @Preview(name = "Главная · загруженный предпросмотр · 150%", uiMode = Configuration.UI_MODE_NIGHT_NO, fontScale = 1.5f, showSystemUi = true)
 @Composable
 internal fun HomePreviewCardPreview() {
-    val preview = VideoPreview(
-        title = "Пример очень длинного названия видео для проверки переноса текста и отсутствия обрезания заголовка",
-        author = "Семейный канал",
-        durationSeconds = 125,
-        thumbnailUrl = null,
-        formats = emptyList(),
-    )
+    val preview =
+        VideoPreview(
+            title = "Пример очень длинного названия видео для проверки переноса текста и отсутствия обрезания заголовка",
+            author = "Семейный канал",
+            durationSeconds = 125,
+            thumbnailUrl = null,
+            formats = emptyList(),
+        )
     SkachayPreview {
         HomePreviewCard(
             url = "https://www.youtube.com/watch?v=preview",
@@ -1100,6 +1567,134 @@ internal fun SettingsScreenPreview() {
             onBack = {},
             onDiagnostics = {},
         )
+    }
+}
+
+internal enum class SettingsPreviewSection(
+    val title: String,
+) {
+    MODE("Режим"),
+    QUALITY("Качество"),
+    DOWNLOADS("Скачивание"),
+    FILES("Файлы"),
+    ENGINE("Движок"),
+    STORAGE("Память и история"),
+    CONVENIENCE("Удобство"),
+    ABOUT("О приложении"),
+}
+
+@Composable
+internal fun SettingsCardPreview(section: SettingsPreviewSection) {
+    val context = LocalContext.current
+    val repository = remember(context) { SettingsRepository.forContext(context) }
+    SkachayPreview {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            SettingsCard(section.title) {
+                when (section) {
+                    SettingsPreviewSection.MODE -> {
+                        Text("Выберите, сколько настроек показывать.", style = MaterialTheme.typography.bodyMedium)
+                        SegmentedPicker(
+                            listOf(UserMode.SIMPLE to "Просто", UserMode.ADVANCED to "Для опытных"),
+                            UserMode.ADVANCED,
+                        ) {}
+                    }
+
+                    SettingsPreviewSection.QUALITY -> {
+                        SettingsRow("Качество по умолчанию", "Выбрано: 720p", R.drawable.ic_quality, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow(
+                            "Своё качество для каждого приложения",
+                            "Отдельный предел для YouTube",
+                            R.drawable.ic_info,
+                            trailing = { Switch(checked = true, onCheckedChange = null) },
+                        )
+                    }
+
+                    SettingsPreviewSection.DOWNLOADS -> {
+                        SegmentSetting(
+                            "При отправке ссылки",
+                            "",
+                            listOf(ShareMode.AUTO to "В фоне", ShareMode.CHOOSE to "С выбором"),
+                            ShareMode.CHOOSE,
+                        ) {}
+                        SectionDivider()
+                        SegmentSetting("Параллельные загрузки", "", (1..4).map { it to it.toString() }, 2) {}
+                        SectionDivider()
+                        SettingsRow(
+                            "Только по Wi-Fi",
+                            "Не расходовать мобильный интернет",
+                            R.drawable.ic_wifi,
+                            trailing = { Switch(checked = false, onCheckedChange = null) },
+                        )
+                    }
+
+                    SettingsPreviewSection.FILES -> {
+                        SettingsRow("Папка сохранения", "Галерея · папка «Скачай»", R.drawable.ic_folder, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow("Имя файла", "Название публикации", R.drawable.ic_quality, trailing = { SettingsChevron() })
+                        SectionDivider()
+                        SettingsRow("Формат фото", "Сохранять исходное качество", R.drawable.ic_folder)
+                    }
+
+                    SettingsPreviewSection.ENGINE -> {
+                        EngineUpdateControl(EngineChannel.STABLE, repository)
+                    }
+
+                    SettingsPreviewSection.STORAGE -> {
+                        StorageControls(sizeOverride = (42L * 1024 * 1024) to (3L * 1024 * 1024))
+                    }
+
+                    SettingsPreviewSection.CONVENIENCE -> {
+                        SettingsRow(
+                            "Крупный режим",
+                            "Увеличивает текст и упрощает чтение",
+                            R.drawable.ic_info,
+                            trailing = { Switch(checked = true, onCheckedChange = null) },
+                        )
+                    }
+
+                    SettingsPreviewSection.ABOUT -> {
+                        AboutControls {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun QualityPresetSettingsPreview() {
+    SkachayPreview {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.94f),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Качество по умолчанию", style = MaterialTheme.typography.headlineSmall)
+                    QualityPresetGrid(Quality.P1440) {}
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text(
+                        "Для автоматического выбора исходного видео. Точный формат имеет приоритет.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    BitrateLimitControl("Предел битрейта", VideoBitrateLimit.K4000) {}
+                    TextButton(onClick = {}, modifier = Modifier.align(Alignment.End)) { Text("Готово") }
+                }
+            }
+        }
     }
 }
 

@@ -17,5 +17,8 @@ class SourceTypeTest {
         assertFalse(SourceType.isYouTube("https://youtube.com.example.org/watch?v=abc"))
         assertFalse(SourceType.isYouTube("https://notyoutube.com/watch?v=abc"))
         assertFalse(SourceType.isYouTube("not a link"))
+        assertFalse(SourceType.isYouTube("https://user@youtube.com/watch?v=abc"))
+        assertFalse(SourceType.isYouTube("https://youtube.com:8443/watch?v=abc"))
+        assertFalse(SourceType.isYouTube("https://youtube.com/" + "x".repeat(2048)))
     }
 }

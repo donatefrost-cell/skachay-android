@@ -2,6 +2,8 @@
 .kotlin/
 .idea/
 .tools/
+/.gradle-home/
+/.tmp/
 private-signing/
 build/
 **/build/

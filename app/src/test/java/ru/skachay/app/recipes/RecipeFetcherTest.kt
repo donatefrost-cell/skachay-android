@@ -1,40 +1,40 @@
 package ru.skachay.app.recipes
 
-import com.sun.net.httpserver.HttpServer
-import java.io.File
-import java.net.InetSocketAddress
-import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class RecipeFetcherTest {
     @Test
     fun acceptsValidatedDataAndRejectsInvalidOrOversizedResponses() {
-        val good = File("../recipe-defaults/recipes.json").readBytes()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/good") { response ->
-            response.sendResponseHeaders(200, good.size.toLong())
-            response.responseBody.use { it.write(good) }
-        }
-        server.createContext("/bad") { response ->
-            val data = "{\"schema\":2}".toByteArray()
-            response.sendResponseHeaders(200, data.size.toLong())
-            response.responseBody.use { it.write(data) }
-        }
-        server.createContext("/big") { response ->
-            val data = ByteArray(65_537) { 65 }
-            response.sendResponseHeaders(200, data.size.toLong())
-            response.responseBody.use { it.write(data) }
-        }
-        server.start()
-        try {
-            val base = "http://127.0.0.1:${server.address.port}"
-            assertEquals(Recipes(), RecipeFetcher(OkHttpClient(), "$base/good").fetch()?.recipes)
-            assertNull(RecipeFetcher(OkHttpClient(), "$base/bad").fetch())
-            assertNull(RecipeFetcher(OkHttpClient(), "$base/big").fetch())
-        } finally {
-            server.stop(0)
-        }
+        val good = File("../recipe-defaults/recipes.json").readText()
+        val invalid = "{\"schema\":2}"
+        val oversized = "x".repeat(65_537)
+
+        assertEquals(Recipes(), RecipeFetcher { good }.fetch()?.recipes)
+        assertNull(RecipeFetcher { invalid }.fetch())
+        assertNull(RecipeFetcher { oversized }.fetch())
+        assertNull(RecipeFetcher { null }.fetch())
+    }
+
+    @Test
+    fun remoteEndpointIsPinnedToTheOfficialHttpsRecipeFile() {
+        assertTrue(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL))
+        assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL.replace("https://", "http://")))
+        assertFalse(
+            RecipeFetcher.isAllowedEndpoint(
+                RecipeFetcher.RAW_URL.replace("raw.githubusercontent.com", "raw.githubusercontent.com.evil.example"),
+            ),
+        )
+        assertFalse(
+            RecipeFetcher.isAllowedEndpoint(
+                "https://user@raw.githubusercontent.com/donatefrost-cell/skachay-android/main/recipe-defaults/recipes.json",
+            ),
+        )
+        assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL + "?redirect=https://example.com"))
+        assertFalse(RecipeFetcher.isAllowedEndpoint(RecipeFetcher.RAW_URL.replace("recipe-defaults/recipes.json", "evil.json")))
     }
 }

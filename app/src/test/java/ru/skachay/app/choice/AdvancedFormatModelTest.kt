@@ -5,12 +5,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AdvancedFormatModelTest {
-    private val formats = listOf(
-        video("h264", "mp4", "avc1.64001f", 1080, 30, 4_700, 277_000_000),
-        video("vp9", "webm", "vp09.00.40.08", 1080, 60, 6_000, 350_000_000),
-        video("av1", "webm", "av01.0.08M.08", 2160, 30, 12_000, 900_000_000),
-        audio("m4a", "m4a", "mp4a.40.2", 128, 5_000_000),
-    )
+    private val formats =
+        listOf(
+            video("h264", "mp4", "avc1.64001f", 1080, 30, 4_700, 277_000_000),
+            video("vp9", "webm", "vp09.00.40.08", 1080, 60, 6_000, 350_000_000),
+            video("av1", "webm", "av01.0.08M.08", 2160, 30, 12_000, 900_000_000),
+            audio("m4a", "m4a", "mp4a.40.2", 128, 5_000_000),
+        )
 
     @Test
     fun filtersAreSpecificAndCompatibleFilterIncludesOnlyGallerySafeFormats() {
@@ -30,9 +31,21 @@ class AdvancedFormatModelTest {
         assertTrue(formatAdvancedSizeRu(null).contains("неизвест"))
     }
 
-    private fun video(id: String, extension: String, codec: String, height: Int, fps: Int, bitrate: Int, bytes: Long) =
-        AvailableFormat(id, extension, codec, null, height, fps, null, bytes, videoBitrate = bitrate)
+    private fun video(
+        id: String,
+        extension: String,
+        codec: String,
+        height: Int,
+        fps: Int,
+        bitrate: Int,
+        bytes: Long,
+    ) = AvailableFormat(id, extension, codec, null, height, fps, null, bytes, videoBitrate = bitrate)
 
-    private fun audio(id: String, extension: String, codec: String, bitrate: Int, bytes: Long) =
-        AvailableFormat(id, extension, null, codec, null, null, bitrate, bytes)
+    private fun audio(
+        id: String,
+        extension: String,
+        codec: String,
+        bitrate: Int,
+        bytes: Long,
+    ) = AvailableFormat(id, extension, null, codec, null, null, bitrate, bytes)
 }
