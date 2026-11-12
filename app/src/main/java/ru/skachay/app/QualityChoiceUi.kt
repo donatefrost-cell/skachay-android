@@ -69,6 +69,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -191,23 +192,22 @@ internal fun QualityChoiceSheetContent(
             if (selection.audio) {
                 item {
                     Text("Формат звука", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        AudioExport.entries.filter { it == AudioExport.SOURCE || it == AudioExport.MP3 }.forEach { export ->
-                            val label =
-                                if (export ==
-                                    AudioExport.SOURCE
-                                ) {
-                                    "Исходное · m4a"
+                    listOf(AudioExport.SOURCE, AudioExport.MP3).forEach { export ->
+                        val compact = export == AudioExport.MP3
+                        val option = selection.copy(audioExport = export)
+                        val size = preview?.let { FormatSelectionResolver.estimateBytes(it, option) }
+                        AudioQualityCard(
+                            title = if (compact) "Компактное" else "Лучшее",
+                            subtitle =
+                                if (compact) {
+                                    "mp3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
                                 } else {
-                                    "MP3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
-                                }
-                            FilterChip(
-                                selected = selection.audioExport == export,
-                                onClick = { onSelectionChanged(selection.copy(audioExport = export)) },
-                                label = { Text(label, maxLines = 1) },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                            )
-                        }
+                                    "m4a · исходное качество"
+                                },
+                            size = formatMediaSizeRu(size),
+                            selected = selection.audioExport == export,
+                            onClick = { onSelectionChanged(option) },
+                        )
                     }
                 }
             } else {
@@ -808,6 +808,55 @@ private fun FormatFilterChip(
     onClick: () -> Unit,
 ) {
     FilterChip(selected, onClick, label = { Text(label, maxLines = 1) }, modifier = Modifier.heightIn(min = 44.dp))
+}
+
+@Composable
+private fun AudioQualityCard(
+    title: String,
+    subtitle: String,
+    size: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 68.dp)
+                .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+                .semantics {
+                    contentDescription = "$title, $subtitle, $size"
+                    stateDescription = if (selected) "выбрано" else "не выбрано"
+                },
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+        border =
+            BorderStroke(
+                if (selected) 1.5.dp else 1.dp,
+                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            ),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = selected, onClick = null)
+            Column(Modifier.weight(1f).padding(start = 8.dp, end = 8.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(size, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable

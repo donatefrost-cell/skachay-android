@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.skachay.app.download.AudioBitrate
+import ru.skachay.app.download.AudioExport
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.VideoBitrateLimit
 import ru.skachay.app.videoBitrateOptions
@@ -101,6 +103,27 @@ class FormatSelectionTest {
         val selection = FormatSelection(resolution = 720, qualityPreset = Quality.P720, audio = true)
 
         assertEquals(listOf("m4a", "opus"), FormatSelectionResolver.candidates(formats, selection).map { it.id })
+    }
+
+    @Test
+    fun audioExportSizesAreEstimatedForTheSelectedFormat() {
+        val preview =
+            VideoPreview(
+                title = "Audio",
+                author = null,
+                durationSeconds = 60,
+                thumbnailUrl = null,
+                formats = formats,
+            )
+
+        assertEquals(1_440_000L, FormatSelectionResolver.estimateBytes(preview, FormatSelection(audio = true)))
+        assertEquals(
+            960_000L,
+            FormatSelectionResolver.estimateBytes(
+                preview,
+                FormatSelection(audio = true, audioExport = AudioExport.MP3, audioBitrate = AudioBitrate.K128),
+            ),
+        )
     }
 
     @Test
