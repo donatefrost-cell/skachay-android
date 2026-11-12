@@ -70,7 +70,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +98,7 @@ import ru.skachay.app.choice.FormatSelection
 import ru.skachay.app.choice.FormatSelectionResolver
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
+import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.settings.UserMode
 import ru.skachay.app.SkachayTheme
 
@@ -463,7 +463,9 @@ private fun PreviewCard(cached: CachedPreview, source: String) {
 private fun PreviewCardContent(preview: VideoPreview, source: String, thumbnail: Bitmap?) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))) {
-            if (thumbnail != null) Image(thumbnail!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            thumbnail?.asImageBitmap()?.let { image ->
+                Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
             else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
         }
         Text(preview.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
@@ -509,7 +511,12 @@ private fun formatLabel(context: Context, format: AvailableFormat, durationSecon
 }
 
 private val thumbnailClient: OkHttpClient by lazy {
-    OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+    UrlNetworkPolicy.publicHttpsClient(
+        callTimeoutSeconds = 15,
+        connectTimeoutSeconds = 8,
+        readTimeoutSeconds = 10,
+        writeTimeoutSeconds = 10,
+    )
 }
 
 internal fun loadThumbnail(url: String, headers: Map<String, String> = emptyMap(), maxDimension: Int = 600): Bitmap? = try {

@@ -1,11 +1,11 @@
 package ru.skachay.app.choice
 
-import java.net.URI
-import java.net.URISyntaxException
 import java.io.IOException
 import java.io.StringReader
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import ru.skachay.app.network.UrlNetworkPolicy
 
 internal data class VideoPreview(
     val title: String,
@@ -39,13 +39,20 @@ internal data class AvailableFormat(
 }
 
 internal object PreviewParser {
-    const val MAX_JSON_CHARS = 24_000_000
+    private const val MAX_JSON_BYTES = 5L * 1024 * 1024
+    const val MAX_JSON_CHARS = 5 * 1024 * 1024
     private val safeId = Regex("[A-Za-z0-9._-]{1,80}")
     private val safeLanguage = Regex("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")
     private val safeHeaderName = Regex("[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}")
+    private val allowedHeaders = mapOf(
+        "user-agent" to "User-Agent",
+        "referer" to "Referer",
+        "origin" to "Origin",
+        "accept-language" to "Accept-Language",
+    )
 
     fun parse(json: String): VideoPreview? {
-        if (json.length > MAX_JSON_CHARS) return null
+        if (json.length > MAX_JSON_CHARS || !isWithinByteLimit(json)) return null
         return try {
             JsonReader(StringReader(json)).use { reader ->
                 if (reader.peek() != JsonToken.BEGIN_OBJECT) return null
@@ -169,10 +176,11 @@ internal object PreviewParser {
         while (reader.hasNext()) {
             val name = reader.nextName()
             val value = reader.stringValue()
-            if (name.matches(safeHeaderName) && value != null && value.length <= 4096 &&
+            val allowedName = name.takeIf(safeHeaderName::matches)?.lowercase()?.let(allowedHeaders::get)
+            if (allowedName != null && value != null && value.length <= 4096 &&
                 value.none { it == '\r' || it == '\n' } && headers.size < 40) {
                 totalBytes += name.length + value.length
-                if (totalBytes <= 16_384) headers[name] = value
+                if (totalBytes <= 16_384) headers[allowedName] = value
             }
         }
         reader.endObject()
@@ -193,12 +201,30 @@ internal object PreviewParser {
     private fun String?.codec(): String? = this?.takeIf { it.isNotBlank() && it != "none" && it != "null" }?.take(80)
 
     private fun safeThumbnail(value: String): Boolean {
-        val uri = try { URI(value) } catch (_: URISyntaxException) { return false }
-        return uri.scheme == "https" && uri.host != null && uri.userInfo == null
+        val url = value.toHttpUrlOrNull() ?: return false
+        return UrlNetworkPolicy.isSafeHttpsUrl(url) &&
+            setOf("ytimg.com", "ggpht.com").any { UrlNetworkPolicy.hostMatchesSuffix(url.host, it) }
     }
 
     private fun safeMediaUrl(value: String): Boolean {
-        val uri = try { URI(value) } catch (_: URISyntaxException) { return false }
-        return uri.scheme == "https" && uri.host != null && uri.userInfo == null && uri.port in -1..65535
+        val url = value.toHttpUrlOrNull() ?: return false
+        return UrlNetworkPolicy.isSafeHttpsUrl(url) && UrlNetworkPolicy.hostMatchesSuffix(url.host, "googlevideo.com")
+    }
+
+    private fun isWithinByteLimit(value: String): Boolean {
+        var bytes = 0L
+        var index = 0
+        while (index < value.length) {
+            val codePoint = value.codePointAt(index)
+            bytes += when {
+                codePoint <= 0x7f -> 1
+                codePoint <= 0x7ff -> 2
+                codePoint <= 0xffff -> 3
+                else -> 4
+            }
+            if (bytes > MAX_JSON_BYTES) return false
+            index += Character.charCount(codePoint)
+        }
+        return true
     }
 }

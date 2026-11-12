@@ -11,14 +11,16 @@ internal object ReleaseStore {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val tag = prefs.getString("tag", null) ?: return null
         val url = prefs.getString("url", null) ?: return null
-        return ReleaseParser.stored(tag, url, currentVersion(context))
+        val digest = prefs.getString("sha256", null)
+        return ReleaseParser.stored(tag, url, digest, currentVersion(context))
     }
 
     fun check(context: Context): ReleaseCheck {
         val result = ReleaseFetcher().check(currentVersion(context))
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         when (result) {
-            is ReleaseCheck.Found -> prefs.edit().putString("tag", result.release.tag).putString("url", result.release.downloadUrl).apply()
+            is ReleaseCheck.Found -> prefs.edit().putString("tag", result.release.tag)
+                .putString("url", result.release.downloadUrl).putString("sha256", result.release.sha256).apply()
             ReleaseCheck.UpToDate -> prefs.edit().clear().apply()
             ReleaseCheck.Unavailable -> Unit
         }

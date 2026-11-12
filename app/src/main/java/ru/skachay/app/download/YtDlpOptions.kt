@@ -30,6 +30,7 @@ internal object YtDlpOptions {
         addOption(if (allowPlaylist) "--yes-playlist" else "--no-playlist")
         addOption("--no-mtime")
         addOption("--newline")
+        addOption("--socket-timeout", 30)
         addOption("--concurrent-fragments", 4)
         addRetries(this, retries)
         infoJson?.let { addOption("--load-info-json", it) }

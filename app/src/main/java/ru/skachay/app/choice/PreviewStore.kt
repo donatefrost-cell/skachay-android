@@ -9,6 +9,7 @@ import java.util.concurrent.Executors
 import android.os.SystemClock
 import ru.skachay.app.download.YtDlpRuntime
 import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.DiagnosticTextRedactor
 import ru.skachay.app.diagnostics.providerFor
 
 internal data class CachedPreview(val file: File, val preview: VideoPreview)
@@ -26,7 +27,7 @@ internal object PreviewStore {
     private val lock = Any()
     private val prefetcher = Executors.newSingleThreadExecutor()
     private val extractionTimes = ConcurrentHashMap<String, Long>()
-    private const val MAX_CACHE_BYTES = 32_000_000L
+    private const val MAX_CACHE_BYTES = 5L * 1024 * 1024
 
     fun getOrFetch(context: Context, url: String): CachedPreview = synchronized(lock) {
         load(context, url)?.let { return it }
@@ -90,7 +91,11 @@ internal object PreviewStore {
             return
         }
         runCatching {
-            file.writeText(warnings.distinctBy { it.lowercase() }.takeLast(24).joinToString("\n"), Charsets.UTF_8)
+            file.writeText(
+                warnings.map { DiagnosticTextRedactor.redact(it).take(1_024) }
+                    .distinctBy { it.lowercase() }.takeLast(24).joinToString("\n"),
+                Charsets.UTF_8,
+            )
         }
     }
 

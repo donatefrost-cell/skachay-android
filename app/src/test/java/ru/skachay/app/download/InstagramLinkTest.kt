@@ -24,5 +24,7 @@ class InstagramLinkTest {
         assertNull(InstagramLink.shortcode("https://instagram.com.example.org/p/abc"))
         assertNull(InstagramLink.shortcode("https://instagram.com/accounts/login/"))
         assertNull(InstagramLink.shortcode("https://instagram.com/p/abc%2Fdef"))
+        assertFalse(InstagramLink.supports("https://user@instagram.com/p/abc"))
+        assertFalse(InstagramLink.supports("https://instagram.com:8443/p/abc"))
     }
 }

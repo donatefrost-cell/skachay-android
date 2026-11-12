@@ -19,6 +19,20 @@ internal enum class DiagnosticStatus(val label: String) {
     ALREADY("Уже скачано"), FAILED("Не получилось скачать"), INTERRUPTED("Загрузка прервана"),
 }
 
+internal const val MAX_DIAGNOSTIC_LOG_CHARS = 16_384
+
+internal object DiagnosticTextRedactor {
+    private val url = Regex("""(?i)https?://[^\s\])}>"']+""")
+    private val header = Regex("""(?im)\b(proxy-authorization|authorization|cookie|set-cookie)\s*:\s*[^\r\n]*""")
+    private val secret = Regex("""(?i)\b(proxy-authorization|authorization|cookie|set-cookie|access[_-]?token|token|api[_-]?key|signature|sig)\s*[:=]\s*[^\s,;]+""")
+
+    fun redact(value: String): String {
+        val withoutHeaders = header.replace(value) { "${it.groupValues[1]}: [скрыто]" }
+        val withoutAssignments = secret.replace(withoutHeaders) { "${it.groupValues[1]}=[скрыто]" }
+        return url.replace(withoutAssignments, "[ссылка скрыта]")
+    }
+}
+
 internal data class DiagnosticEntry(
     val provider: DownloadProvider,
     val status: DiagnosticStatus = DiagnosticStatus.NEVER,
@@ -52,15 +66,16 @@ internal fun diagnosticError(provider: DownloadProvider, error: Throwable): Stri
     }
 }
 
-internal fun diagnosticLog(entries: List<DiagnosticEntry>): String = buildString {
+internal fun diagnosticLog(entries: List<DiagnosticEntry>, recentCrashes: List<String> = emptyList()): String = buildString {
     appendLine("Скачай — диагностика")
+    recentCrashes.takeLast(5).forEach { appendLine("Ошибка приложения: ${DiagnosticTextRedactor.redact(it)}") }
     val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.forLanguageTag("ru"))
     entries.forEach { entry ->
         appendLine()
         appendLine("${entry.provider.label}: ${entry.status.label}")
         if (entry.timestamp > 0) appendLine("Последняя попытка: ${dateFormat.format(Date(entry.timestamp))}")
-        entry.lastError?.let { appendLine("Последняя ошибка: $it") }
-        entry.engineWarnings.forEach { appendLine("Предупреждение yt-dlp: $it") }
+        entry.lastError?.let { appendLine("Последняя ошибка: ${DiagnosticTextRedactor.redact(it)}") }
+        entry.engineWarnings.forEach { appendLine("Предупреждение yt-dlp: ${DiagnosticTextRedactor.redact(it)}") }
         DownloadStage.entries.forEach { stage ->
             val duration = entry.durations[stage]?.let { String.format(Locale.forLanguageTag("ru"), "%.1f с", it / 1000.0) } ?: "нет данных"
             appendLine("${stage.label}: $duration")
@@ -73,7 +88,12 @@ internal fun diagnosticLog(entries: List<DiagnosticEntry>): String = buildString
         entry.remainingMillis?.let { appendLine("Осталось: ${formatDuration(it)}") }
         entry.vpnActive?.let { appendLine("VPN: ${if (it) "активен" else "не активен"}") }
     }
-}.trimEnd()
+}.trimEnd().let { log ->
+    if (log.length <= MAX_DIAGNOSTIC_LOG_CHARS) log
+    else log.take(MAX_DIAGNOSTIC_LOG_CHARS - LOG_TRUNCATED_MARKER.length).trimEnd() + LOG_TRUNCATED_MARKER
+}
+
+private const val LOG_TRUNCATED_MARKER = "\n… журнал сокращён"
 
 internal fun formatSpeed(bytesPerSecond: Long): String = String.format(
     Locale.forLanguageTag("ru"), "%.1f МБ/с", bytesPerSecond.coerceAtLeast(0) / 1_048_576.0,

@@ -1,9 +1,9 @@
 package ru.skachay.app.download
 
-import java.net.URI
-import java.net.URISyntaxException
 import org.json.JSONException
 import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.recipes.InstagramRecipe
 import ru.skachay.app.recipes.RecipeRegistry
 
@@ -92,11 +92,15 @@ object InstagramParser {
     }
 
     private fun media(value: String, kind: ResolvedMedia.Kind): ResolvedMedia? {
-        val url = value.replace("&amp;", "&").replace("&#38;", "&")
-        val uri = try { URI(url) } catch (_: URISyntaxException) { return null }
-        if (uri.scheme?.lowercase() !in listOf("http", "https") || uri.host == null || uri.userInfo != null) return null
+        val decoded = value.replace("&amp;", "&").replace("&#38;", "&")
+        if (decoded.length > MAX_MEDIA_URL_LENGTH) return null
+        val url = decoded.replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
+        val parsed = url.toHttpUrlOrNull() ?: return null
+        if (!UrlNetworkPolicy.isSafeHttpsUrl(parsed)) return null
         return ResolvedMedia(url, kind)
     }
+
+    private const val MAX_MEDIA_URL_LENGTH = 8192
 
     private fun unescapeLayer(text: String): String = buildString {
         var index = 0

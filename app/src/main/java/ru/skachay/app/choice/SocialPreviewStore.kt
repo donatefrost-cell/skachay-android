@@ -13,6 +13,7 @@ import ru.skachay.app.download.InstagramResolver
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
 import ru.skachay.app.download.SocialYtDlpResolver
+import ru.skachay.app.download.ResolvedMediaNetworkPolicy
 
 internal object SocialPreviewStore {
     private val lock = Any()
@@ -29,6 +30,9 @@ internal object SocialPreviewStore {
             else -> emptyList()
         }.ifEmpty { SocialYtDlpResolver.resolve(context.applicationContext, url) }
         if (items.isEmpty()) throw IOException("No media preview")
+        if (items.any { !ResolvedMediaNetworkPolicy.isAllowed(url, it.url) }) {
+            throw IOException("Media host is outside the source allowlist")
+        }
         val source = digest(url)
         val now = System.currentTimeMillis()
         val json = SocialPreviewCodec.encode(source, UUID.randomUUID().toString(), now, items)
@@ -57,7 +61,9 @@ internal object SocialPreviewStore {
         if (!file.isFile || file.length() > MAX_BYTES) return null
         return try {
             SocialPreviewCodec.decode(file.readText(Charsets.UTF_8), source, System.currentTimeMillis())
-                ?.takeIf { id == null || it.id == id }
+                ?.takeIf { preview ->
+                    (id == null || preview.id == id) && preview.items.all { ResolvedMediaNetworkPolicy.isAllowed(url, it.url) }
+                }
         } catch (_: IOException) {
             null
         }

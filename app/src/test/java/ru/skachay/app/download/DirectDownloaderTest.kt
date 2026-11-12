@@ -31,6 +31,24 @@ class DirectDownloaderTest {
     }
 
     @Test
+    fun capsRangeMetadataForVeryLargeFilesWithoutOverflowingOffsets() {
+        val segments = rangeSegments(Long.MAX_VALUE, connections = 16)
+        assertEquals(4_096, segments.size)
+        assertEquals(0L, segments.first().first)
+        assertEquals(Long.MAX_VALUE - 1, segments.last().last)
+        assertTrue(segments.zipWithNext().all { (left, right) -> left.last + 1 == right.first })
+    }
+
+    @Test
+    fun checksAvailableSpaceForDownloadAndRangeParts() {
+        assertTrue(DownloadSpacePolicy.hasEnough(100, 80, copies = 1))
+        assertTrue(DownloadSpacePolicy.hasEnough(100, 60, copies = 2))
+        assertTrue(DownloadSpacePolicy.hasEnough(40, 60, copies = 1, existingBytesToReplace = 20))
+        assertTrue(!DownloadSpacePolicy.hasEnough(100, 60, copies = 2))
+        assertTrue(!DownloadSpacePolicy.hasEnough(100, Long.MAX_VALUE, copies = 2))
+    }
+
+    @Test
     fun retriesTemporaryServerFailuresWithBackoff() {
         val attempts = AtomicInteger()
         val waits = mutableListOf<Long>()

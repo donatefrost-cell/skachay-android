@@ -47,7 +47,10 @@ class DirectDownloader(
                     } else null
                 }
             }
-            if (info == null || info.size < 2 || connections == 1) {
+            val canUseRanges = info != null && info.size >= 2 && connections > 1 &&
+                DownloadSpacePolicy.hasEnough(parent.usableSpace, info.size, copies = 2)
+            if (info != null) ensureSpace(parent, info.size, copies = 1, existingBytesToReplace = 0)
+            if (info == null || info.size < 2 || connections == 1 || !canUseRanges) {
                 downloadWhole(url, temporary, headers, progress, retries)
             } else {
                 try {
@@ -76,6 +79,7 @@ class DirectDownloader(
                 if (response.code != 200) throw HttpStatusException(response.code)
                 val body = response.body
                 val expected = body.contentLength()
+                if (expected >= 0) ensureSpace(destination.parentFile, expected, copies = 1, existingBytesToReplace = destination.length())
                 progress.reset(expected.takeIf { it >= 0 })
                 destination.outputStream().use { copy(body.byteStream(), it, progress) }
                 if (expected >= 0 && destination.length() != expected) throw IOException("Incomplete response")
@@ -86,9 +90,12 @@ class DirectDownloader(
     private fun downloadRanges(url: String, destination: File, info: Probe, connections: Int, headers: Map<String, String>, progress: Progress, retries: Int) {
         val size = info.size
         val segments = rangeSegments(size, connections)
-        val parts = List(segments.size) { File.createTempFile("part-", ".tmp", destination.parentFile) }
-        val executor = Executors.newFixedThreadPool(minOf(connections, parts.size))
+        val parts = mutableListOf<File>()
+        var rangeExecutor: java.util.concurrent.ExecutorService? = null
         try {
+            repeat(segments.size) { parts += File.createTempFile("part-", ".tmp", destination.parentFile) }
+            val executor = Executors.newFixedThreadPool(minOf(connections, parts.size))
+            rangeExecutor = executor
             progress.reset(size)
             val tasks = parts.mapIndexed { index, part ->
                 val start = segments[index].first
@@ -134,7 +141,7 @@ class DirectDownloader(
                 parts.forEach { it.inputStream().use { input -> input.copyTo(output) } }
             }
         } finally {
-            executor.shutdownNow()
+            rangeExecutor?.shutdownNow()
             parts.forEach(File::delete)
         }
     }
@@ -201,15 +208,38 @@ class DirectDownloader(
     }
 }
 
+internal object DownloadSpacePolicy {
+    fun hasEnough(availableBytes: Long, expectedBytes: Long, copies: Int, existingBytesToReplace: Long = 0): Boolean {
+        if (availableBytes < 0 || expectedBytes < 0 || copies < 1 || copies > 2 || existingBytesToReplace < 0) return false
+        if (expectedBytes > Long.MAX_VALUE / copies) return false
+        val required = expectedBytes * copies
+        val usable = availableBytes.coerceAtLeast(0)
+        val capacity = if (Long.MAX_VALUE - usable < existingBytesToReplace) Long.MAX_VALUE else usable + existingBytesToReplace
+        return required <= capacity
+    }
+}
+
+private fun ensureSpace(directory: File?, expectedBytes: Long, copies: Int, existingBytesToReplace: Long) {
+    val available = directory?.usableSpace ?: 0L
+    if (!DownloadSpacePolicy.hasEnough(available, expectedBytes, copies, existingBytesToReplace)) {
+        throw IOException("Not enough free storage for download")
+    }
+}
+
 internal fun rangeSegments(size: Long, connections: Int, targetChunkBytes: Long = 8L * 1024 * 1024): List<LongRange> {
     require(size > 0)
     require(connections in 1..16)
     require(targetChunkBytes in 4L * 1024 * 1024..10L * 1024 * 1024)
     val count = if (size <= targetChunkBytes) minOf(size, connections.toLong()).toInt()
-    else ((size + targetChunkBytes - 1) / targetChunkBytes).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    else (((size - 1) / targetChunkBytes + 1).coerceAtMost(MAX_RANGE_PARTS.toLong())).toInt()
+    val quotient = size / count
+    val remainder = size % count
+    fun boundary(index: Int): Long = quotient * index + remainder * index / count
     return List(count) { index ->
-        val first = size * index / count
-        val exclusiveEnd = size * (index + 1) / count
+        val first = boundary(index)
+        val exclusiveEnd = boundary(index + 1)
         first until exclusiveEnd
     }
 }
+
+private const val MAX_RANGE_PARTS = 4_096

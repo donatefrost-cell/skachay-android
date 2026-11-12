@@ -5,7 +5,7 @@ import java.net.URISyntaxException
 import org.json.JSONException
 import org.json.JSONObject
 
-data class ReleaseInfo(val tag: String, val versionCode: Int, val downloadUrl: String)
+data class ReleaseInfo(val tag: String, val versionCode: Int, val downloadUrl: String, val sha256: String)
 
 object ReleaseParser {
     fun parse(json: String, currentVersion: Int): ReleaseInfo? {
@@ -22,7 +22,8 @@ object ReleaseParser {
                 val asset = assets.optJSONObject(index) ?: continue
                 if (asset.optString("name") != "app-release.apk") continue
                 val url = asset.optString("browser_download_url")
-                if (trustedUrl(url, tag)) return ReleaseInfo(tag, version, url)
+                val digest = parseSha256(asset.optString("digest")) ?: continue
+                if (trustedUrl(url, tag)) return ReleaseInfo(tag, version, url, digest)
             }
             null
         } catch (_: JSONException) {
@@ -39,10 +40,16 @@ object ReleaseParser {
         return value.toInt().takeIf { major <= 2099 && value in 1..2_100_000_000L }
     }
 
-    internal fun stored(tag: String, url: String, currentVersion: Int): ReleaseInfo? {
+    internal fun stored(tag: String, url: String, digest: String?, currentVersion: Int): ReleaseInfo? {
         val version = versionCode(tag) ?: return null
-        return if (version > currentVersion && trustedUrl(url, tag)) ReleaseInfo(tag, version, url) else null
+        val sha256 = parseSha256(digest) ?: return null
+        return if (version > currentVersion && trustedUrl(url, tag)) ReleaseInfo(tag, version, url, sha256) else null
     }
+
+    private fun parseSha256(value: String?): String? = value
+        ?.removePrefix("sha256:")
+        ?.takeIf { Regex("[A-Fa-f0-9]{64}").matches(it) }
+        ?.lowercase()
 
     private fun trustedUrl(value: String, tag: String): Boolean {
         val uri = try { URI(value) } catch (_: URISyntaxException) { return false }

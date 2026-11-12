@@ -1,11 +1,11 @@
 package ru.skachay.app.choice
 
-import java.net.URI
-import java.net.URISyntaxException
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import ru.skachay.app.download.ResolvedMedia
+import ru.skachay.app.network.UrlNetworkPolicy
 
 internal data class SocialPreview(val id: String, val createdAt: Long, val items: List<ResolvedMedia>)
 
@@ -13,14 +13,14 @@ internal object SocialPreviewCodec {
     private const val MAX_TEXT = 1_000_000
     private const val MAX_ITEMS = 100
     private const val MAX_AGE_MS = 60 * 60 * 1000L
-    private val allowedHeaders = setOf("User-Agent", "Referer", "Cookie")
+    private val allowedHeaders = setOf("User-Agent", "Referer")
     private val idPattern = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
     fun encode(source: String, id: String, createdAt: Long, items: List<ResolvedMedia>): String {
         val entries = JSONArray()
         items.forEach { item ->
             val headers = JSONObject()
-            item.headers.forEach { (key, value) -> headers.put(key, value) }
+            item.headers.filterKeys { it in allowedHeaders }.forEach { (key, value) -> headers.put(key, value) }
             entries.put(JSONObject().put("url", item.url).put("type", item.type.name).put("headers", headers))
         }
         return JSONObject().put("source", source).put("id", id).put("created", createdAt).put("items", entries).toString()
@@ -39,8 +39,8 @@ internal object SocialPreviewCodec {
             val items = (0 until array.length()).map { index ->
                 val item = array.getJSONObject(index)
                 val url = item.getString("url")
-                val uri = try { URI(url) } catch (_: URISyntaxException) { return null }
-                if (url.length > 8192 || uri.scheme !in listOf("http", "https") || uri.host == null || uri.userInfo != null) return null
+                val parsedUrl = if (url.length <= 8192) url.toHttpUrlOrNull() else null
+                if (parsedUrl == null || !UrlNetworkPolicy.isSafeHttpsUrl(parsedUrl)) return null
                 val kind = try { ResolvedMedia.Kind.valueOf(item.getString("type")) } catch (_: IllegalArgumentException) { return null }
                 val headerObject = item.getJSONObject("headers")
                 if (headerObject.length() > allowedHeaders.size) return null

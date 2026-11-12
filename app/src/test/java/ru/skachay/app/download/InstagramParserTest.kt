@@ -42,6 +42,15 @@ class InstagramParserTest {
     }
 
     @Test
+    fun rejectsPrivateMediaAndUpgradesCleartextCdnLinksToHttps() {
+        assertTrue(InstagramParser.parse("""{"video_url":"https://127.0.0.1/private.mp4"}""").isEmpty())
+        assertEquals(
+            "https://cdn.example/video.mp4",
+            InstagramParser.parse("""{"video_url":"http://cdn.example/video.mp4"}""").single().url,
+        )
+    }
+
+    @Test
     fun doesNotMistakeAReelCoverForTheVideo() {
         val html = "<meta property=\"og:image\" content=\"https://cdn.example/cover.png\">"
         assertTrue(InstagramParser.parse(html, requireVideo = true).isEmpty())

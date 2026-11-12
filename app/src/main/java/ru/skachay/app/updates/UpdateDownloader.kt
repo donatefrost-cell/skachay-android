@@ -10,8 +10,8 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import okhttp3.OkHttpClient
 import ru.skachay.app.download.DirectDownloader
+import ru.skachay.app.network.UrlNetworkPolicy
 
 internal class InvalidUpdateException : IOException("Update package or signature does not match")
 
@@ -22,8 +22,12 @@ internal class UpdateDownloader(private val context: Context) {
         val temporary = File(directory, "download.apk")
         val result = File(directory, "update.apk")
         try {
-            val client = OkHttpClient.Builder().followSslRedirects(false).build()
+            val client = UrlNetworkPolicy.publicHttpsClient(
+                callTimeoutSeconds = 60 * 60,
+                allowedRedirectHostSuffixes = setOf("github.com", "githubusercontent.com"),
+            )
             DirectDownloader(client).download(release.downloadUrl, temporary, connections = 4)
+            if (!ArchiveValidation.matchesSha256(ArchiveValidation.sha256(temporary), release.sha256)) throw InvalidUpdateException()
             if (!validateArchive(temporary, release.versionCode)) throw InvalidUpdateException()
             Files.move(temporary.toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING)
             return FileProvider.getUriForFile(context, "${context.packageName}.files", result)
@@ -53,4 +57,5 @@ internal class UpdateDownloader(private val context: Context) {
         val values = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
         return values?.map { it.toCharsString() }.orEmpty()
     }
+
 }

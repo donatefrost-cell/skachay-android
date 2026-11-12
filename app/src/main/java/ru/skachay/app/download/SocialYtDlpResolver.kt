@@ -23,6 +23,10 @@ internal object SocialYtDlpResolver {
                 .thenBy { it.fps ?: 0 }
                 .thenBy { it.videoBitrate ?: 0 },
         )
-        ?.let { listOf(ResolvedMedia(it.directUrl!!, ResolvedMedia.Kind.VIDEO, it.httpHeaders)) }
+        ?.let { format ->
+            format.directUrl?.let { directUrl ->
+                listOf(ResolvedMedia(directUrl, ResolvedMedia.Kind.VIDEO, format.httpHeaders))
+            }
+        }
         .orEmpty()
 }

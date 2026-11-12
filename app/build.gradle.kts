@@ -2,7 +2,20 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("com.android.compose.screenshot") version "0.0.1-alpha16"
+}
+
+ktlint {
+    version.set("1.8.0")
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+dependencyLocking {
+    lockAllConfigurations()
 }
 
 val releaseVersion = providers.gradleProperty("releaseVersion").orElse("0.1.0").get().removePrefix("v")
@@ -41,10 +54,10 @@ android {
     signingConfigs {
         if (signingValues.none { it.isNullOrBlank() }) {
             create("production") {
-                storeFile = file(signingValues[0]!!)
-                storePassword = signingValues[1]
-                keyAlias = signingValues[2]
-                keyPassword = signingValues[3]
+                storeFile = file(requireNotNull(signingValues[0]))
+                storePassword = requireNotNull(signingValues[1])
+                keyAlias = requireNotNull(signingValues[2])
+                keyPassword = requireNotNull(signingValues[3])
             }
         }
     }
@@ -54,6 +67,11 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("production")
         }
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
     }
 
     buildFeatures {

@@ -1,6 +1,7 @@
 package ru.skachay.app.choice
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import ru.skachay.app.download.ResolvedMedia
@@ -19,7 +20,8 @@ class SocialPreviewCodecTest {
         val json = SocialPreviewCodec.encode(source, id, 10_000L, items)
         val snapshot = SocialPreviewCodec.decode(json, source, 10_500L)
         assertEquals(id, snapshot?.id)
-        assertEquals(items, snapshot?.items)
+        assertEquals(items.map { it.copy(headers = it.headers - "Cookie") }, snapshot?.items)
+        assertFalse(json.contains("session=value"))
         assertNull(SocialPreviewCodec.decode(json, "b".repeat(64), 10_500L))
         assertNull(SocialPreviewCodec.decode(json, source, 10_000L + 60 * 60 * 1000L + 1))
         assertNull(SocialPreviewCodec.decode(json, source, 9_999L))
@@ -30,6 +32,10 @@ class SocialPreviewCodecTest {
         assertNull(SocialPreviewCodec.decode("{", source, 10_000L))
         val unsafe = items.toMutableList().apply { this[0] = this[0].copy(url = "https://name:password@example.com/a.jpg") }
         assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, unsafe), source, 10_000L))
+        val privateAddress = items.toMutableList().apply { this[0] = this[0].copy(url = "https://169.254.169.254/latest/meta-data") }
+        assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, privateAddress), source, 10_000L))
+        val cleartext = items.toMutableList().apply { this[0] = this[0].copy(url = "http://example.com/a.jpg") }
+        assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, cleartext), source, 10_000L))
         val brokenHeader = items.toMutableList().apply { this[0] = this[0].copy(headers = mapOf("Cookie" to "x\r\ny")) }
         assertNull(SocialPreviewCodec.decode(SocialPreviewCodec.encode(source, id, 10_000L, brokenHeader), source, 10_000L))
     }

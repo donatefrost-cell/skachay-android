@@ -5,6 +5,7 @@ import java.util.UUID
 
 internal object DiagnosticsStore {
     const val PREFERENCES = "diagnostics"
+    private const val CRASH_KEY = "app.crashes"
 
     @Synchronized
     fun begin(context: Context, provider: DownloadProvider): String {
@@ -32,8 +33,9 @@ internal object DiagnosticsStore {
         if (warnings.isEmpty()) return
         val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         val existing = prefs.getString(key(provider, "warnings"), null).orEmpty()
-            .lines().filter(String::isNotBlank)
-        val combined = (existing + warnings).distinctBy { it.lowercase() }.takeLast(24)
+            .lines().filter(String::isNotBlank).map(DiagnosticTextRedactor::redact)
+        val sanitized = warnings.map { DiagnosticTextRedactor.redact(it).take(MAX_WARNING_CHARS) }
+        val combined = (existing + sanitized).distinctBy { it.lowercase() }.takeLast(24)
         prefs.edit().putString(key(provider, "warnings"), combined.joinToString("\n")).apply()
     }
 
@@ -78,6 +80,24 @@ internal object DiagnosticsStore {
         editor.apply()
     }
 
+    @Synchronized
+    fun recordUnhandledException(context: Context, thread: Thread, error: Throwable) {
+        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        val existing = preferences.getString(CRASH_KEY, null).orEmpty().lines().filter(String::isNotBlank)
+        val threadName = thread.name.filter { it.isLetterOrDigit() || it in "._- " }.take(64)
+        val errorName = error.javaClass.simpleName.filter(Char::isLetterOrDigit).take(80).ifBlank { "Ошибка" }
+        val entry = System.currentTimeMillis().toString() + " · " + threadName + " · " + errorName
+        preferences.edit().putString(CRASH_KEY, (existing + entry).takeLast(5).joinToString("\n")).commit()
+    }
+
+    fun recentUnhandledExceptions(context: Context): List<String> = context
+        .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        .getString(CRASH_KEY, null)
+        ?.lines()
+        ?.filter(String::isNotBlank)
+        ?.takeLast(5)
+        .orEmpty()
+
     fun read(context: Context): List<DiagnosticEntry> {
         val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         return DownloadProvider.entries.map { provider ->
@@ -94,10 +114,13 @@ internal object DiagnosticsStore {
                 prefs.getLong(key(provider, "speed"), -1L).takeIf { prefs.contains(key(provider, "speed")) },
                 prefs.getLong(key(provider, "remaining"), -1L).takeIf { prefs.contains(key(provider, "remaining")) },
                 prefs.getBoolean(key(provider, "vpn"), false).takeIf { prefs.contains(key(provider, "vpn")) },
-                prefs.getString(key(provider, "warnings"), null)?.lines().orEmpty().filter(String::isNotBlank),
+                prefs.getString(key(provider, "warnings"), null)?.lines().orEmpty()
+                    .filter(String::isNotBlank).map(DiagnosticTextRedactor::redact),
             )
         }
     }
 
     private fun key(provider: DownloadProvider, field: String): String = "${provider.name}.$field"
+
+    private const val MAX_WARNING_CHARS = 1_024
 }

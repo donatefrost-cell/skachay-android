@@ -29,7 +29,12 @@ object TikTokLink {
     }
 
     private fun parse(url: String): URI? {
+        if (url.length > 2048) return null
         val uri = try { URI(url) } catch (_: URISyntaxException) { return null }
-        return uri.takeIf { it.scheme?.lowercase(Locale.ROOT) in listOf("http", "https") && it.userInfo == null }
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        return uri.takeIf {
+            scheme in listOf("http", "https") && it.userInfo == null &&
+                it.port in setOf(-1, if (scheme == "http") 80 else 443)
+        }
     }
 }

@@ -1,12 +1,12 @@
 package ru.skachay.app.download
 
-import java.net.URI
-import java.net.URISyntaxException
 import java.util.ArrayDeque
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.recipes.RecipeRegistry
 import ru.skachay.app.recipes.TikTokRecipe
 
@@ -62,11 +62,15 @@ object TikTokParser {
 
     private fun urlOf(value: Any?, recipe: TikTokRecipe): String? = when (value) {
         is String -> {
-            val uri = try { URI(value) } catch (_: URISyntaxException) { null }
-            value.takeIf { uri?.scheme in listOf("http", "https") && uri?.host != null && uri.userInfo == null }
+            if (value.length > MAX_MEDIA_URL_LENGTH) return null
+            val secure = value.replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")
+            val parsed = secure.toHttpUrlOrNull() ?: return null
+            secure.takeIf { UrlNetworkPolicy.isSafeHttpsUrl(parsed) }
         }
         is JSONArray -> (0 until value.length()).firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
         is JSONObject -> recipe.nestedUrlFields.firstNotNullOfOrNull { urlOf(value.opt(it), recipe) }
         else -> null
     }
+
+    private const val MAX_MEDIA_URL_LENGTH = 8192
 }

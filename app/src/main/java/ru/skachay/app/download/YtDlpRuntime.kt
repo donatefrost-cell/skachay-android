@@ -90,6 +90,7 @@ internal object YtDlpRuntime {
                 runtimeLock.read {
                     val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
                         .addOption("--no-playlist").addOption("--skip-download").addOption("--dump-single-json")
+                        .addOption("--socket-timeout", 30)
                     YtDlpOptions.addRetries(request, retries)
                     addRuntimeSupport(context, url, request)
                     executeWithWarningCapture(request, onWarnings = onWarnings).out

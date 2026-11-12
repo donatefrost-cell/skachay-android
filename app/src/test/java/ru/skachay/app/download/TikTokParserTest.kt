@@ -40,4 +40,12 @@ class TikTokParserTest {
         val html = """<script id="SIGI_STATE">{"itemStruct":{"id":"456","imagePost":{"images":[{"imageURL":{"urlList":["https://cdn.example/1.jpg"]}},{"imageURL":{}}]}}}</script>"""
         assertTrue(TikTokParser.parse(html, "456").isEmpty())
     }
+
+    @Test
+    fun rejectsPrivateAddressesAndUpgradesMediaLinksToHttps() {
+        val private = """<script id="SIGI_STATE">{"itemStruct":{"id":"456","video":{"playAddr":"https://127.0.0.1/private.mp4"}}}</script>"""
+        val cleartext = """<script id="SIGI_STATE">{"itemStruct":{"id":"456","video":{"playAddr":"http://cdn.example/video.mp4"}}}</script>"""
+        assertTrue(TikTokParser.parse(private, "456").isEmpty())
+        assertEquals("https://cdn.example/video.mp4", TikTokParser.parse(cleartext, "456").single().url)
+    }
 }

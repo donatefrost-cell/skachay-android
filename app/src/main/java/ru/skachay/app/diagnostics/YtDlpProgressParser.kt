@@ -54,10 +54,11 @@ internal object YtDlpProgressParser {
 
     private fun parseEta(value: String): Long? {
         val parts = value.split(':').map(String::toLongOrNull)
-        if (parts.any { it == null }) return null
+        val first = parts.getOrNull(0) ?: return null
+        val second = parts.getOrNull(1) ?: return null
         val seconds = when (parts.size) {
-            2 -> parts[0]!! * 60 + parts[1]!!
-            3 -> parts[0]!! * 3600 + parts[1]!! * 60 + parts[2]!!
+            2 -> first * 60 + second
+            3 -> first * 3600 + second * 60 + (parts.getOrNull(2) ?: return null)
             else -> return null
         }
         return seconds * 1000

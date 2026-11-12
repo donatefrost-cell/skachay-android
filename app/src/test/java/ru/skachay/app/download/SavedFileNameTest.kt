@@ -21,6 +21,14 @@ class SavedFileNameTest {
     }
 
     @Test
+    fun protectsReservedDeviceNames() {
+        assertEquals("CON_.mp4", SavedFileName.displayName("CON", "mp4"))
+        assertEquals("aux_.jpg", SavedFileName.displayName("aux", "jpg"))
+        assertEquals("CON_.txt.mp4", SavedFileName.displayName("CON.txt", "mp4"))
+        assertEquals("report_con.txt.mp4", SavedFileName.displayName("report_con.txt", "mp4"))
+    }
+
+    @Test
     fun numbersSeveralItemsAndLimitsUtf8LengthWithoutBreakingEmoji() {
         assertEquals("Семья (1).jpg", SavedFileName.displayName("Семья.jpg", "jpg", 1))
         assertEquals("Семья (2).mp4", SavedFileName.displayName("Семья", "mp4", 2))

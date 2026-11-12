@@ -68,8 +68,8 @@ import ru.skachay.app.choice.SocialSelection
 import ru.skachay.app.notifications.DownloadNotificationId
 import ru.skachay.app.notifications.DownloadNotificationSnapshot
 import ru.skachay.app.notifications.DownloadNotificationState
-import okhttp3.OkHttpClient
 import okhttp3.Request
+import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.queue.DownloadControl
 import ru.skachay.app.queue.DownloadQueueDatabase
 import ru.skachay.app.queue.DownloadQueueEntry
@@ -94,7 +94,12 @@ class DownloadService : Service() {
         DownloadNotificationCenter(this, notifications, ::groupSummaryNotification, GROUP_SUMMARY_ID)
     }
     private val thumbnailClient by lazy {
-        OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
+        UrlNetworkPolicy.publicHttpsClient(
+            callTimeoutSeconds = 5,
+            connectTimeoutSeconds = 5,
+            readTimeoutSeconds = 5,
+            writeTimeoutSeconds = 5,
+        )
     }
     private val notificationLargeIcon by lazy {
         Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888).also { bitmap ->
@@ -453,7 +458,7 @@ class DownloadService : Service() {
             val saved = if (items.isNotEmpty()) {
                 timer.switchTo(DownloadStage.TRANSFER)
                 transferStats.start()
-                saveResolvedItems(items, directory, settings.connections, settings.retries, timer, report, fileName, transferStats, outputFolderUri)
+                saveResolvedItems(url, items, directory, settings.connections, settings.retries, timer, report, fileName, transferStats, outputFolderUri)
             } else {
                 if (TikTokLink.isPhoto(url)) throw IOException("Photo post unavailable")
                 var audioOnly = false
@@ -468,7 +473,7 @@ class DownloadService : Service() {
                     if (allowPlaylist) {
                         timer.record(DownloadStage.RUNTIME_START, YtDlpRuntime.startupDurationMs() ?: 0L)
                         transferStats.start()
-                        playlistFiles = YtDlpRuntime.downloadPlaylist(
+                        val downloadedPlaylistFiles = YtDlpRuntime.downloadPlaylist(
                             context = this,
                             url = url,
                             directory = directory,
@@ -486,15 +491,18 @@ class DownloadService : Service() {
                             videoBitrateLimit = settings.videoBitrateLimit,
                             embedThumbnail = embedThumbnail,
                         )
-                        mediaTitle = "Плейлист · ${playlistFiles!!.size} файлов"
-                        playlistFiles!!.first()
+                        if (downloadedPlaylistFiles.isEmpty()) throw IOException("Playlist did not produce media files")
+                        playlistFiles = downloadedPlaylistFiles
+                        mediaTitle = "Плейлист · " + downloadedPlaylistFiles.size + " файлов"
+                        downloadedPlaylistFiles.first()
                     } else {
                     val extractionStarted = SystemClock.elapsedRealtime()
                     val cached = if (usePreview || formatId != null) {
                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
                     } else PreviewStore.getOrFetch(this, url)
-                    mediaTitle = cached.preview.title.take(100)
-                    updateQueueTitle(id, mediaTitle!!)
+                    val previewTitle = cached.preview.title.take(100)
+                    mediaTitle = previewTitle
+                    updateQueueTitle(id, previewTitle)
                     thumbnailUrl = cached.preview.thumbnailUrl
                     report(null)
                     val extractionElapsed = (SystemClock.elapsedRealtime() - extractionStarted).coerceAtLeast(0)
@@ -572,9 +580,10 @@ class DownloadService : Service() {
                 val output = mutableListOf<Pair<Uri, String>>()
                 val fileNameForMedia = fileName ?: FileNameTemplate.resolve(settings.fileNameTemplate, mediaTitle, url, provider.label)
                 try {
-                    if (playlistFiles != null) {
+                    val completedPlaylistFiles = playlistFiles
+                    if (completedPlaylistFiles != null) {
                         val writer = MediaStoreWriter(this)
-                        playlistFiles!!.forEachIndexed { index, playlistFile ->
+                        completedPlaylistFiles.forEachIndexed { index, playlistFile ->
                             val playlistMime = detect(playlistFile, playlistFile.name)
                                 ?: throw IOException("Not a supported playlist media file")
                             val playlistTemplateName = FileNameTemplate.resolve(
@@ -650,10 +659,13 @@ class DownloadService : Service() {
         }
     }
 
-    private fun saveResolvedItems(items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?, transferStats: TransferStats, folderUri: Uri?): List<Pair<Uri, String>> {
+    private fun saveResolvedItems(sourceUrl: String, items: List<ResolvedMedia>, directory: File, connections: Int, retries: Int, timer: StageTimer, report: (Int?) -> Unit, fileName: String?, transferStats: TransferStats, folderUri: Uri?): List<Pair<Uri, String>> {
+        val sourceDownloader = MediaDownloadClient.forSource(sourceUrl)
+            ?: throw IOException("Unsupported media source")
         val files = items.mapIndexed { index, item ->
+            if (!ResolvedMediaNetworkPolicy.isAllowed(sourceUrl, item.url)) throw IOException("Unsafe media address")
             val file = File(directory, "item-$index.tmp")
-            downloader.download(item.url, file, connections = connections, headers = item.headers, retries = retries) { received, total ->
+            sourceDownloader.download(item.url, file, connections = connections, headers = item.headers, retries = retries) { received, total ->
                 val sample = transferStats.update(received, total)
                 val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
                 report(itemPercent?.let { (index * 100 + it) / items.size })

@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -410,11 +411,15 @@ private fun DownloadQueueSection() {
 }
 
 @Composable
-private fun DownloadQueueCard(entry: DownloadQueueEntry) {
+private fun DownloadQueueCard(entry: DownloadQueueEntry, loadThumbnail: Boolean = true) {
     val context = LocalContext.current
     val thumbnailUrl by produceState<String?>(initialValue = null, entry.url) {
-        value = withContext(Dispatchers.IO) {
-            PreviewStore.load(context, entry.url, forDownload = true)?.preview?.thumbnailUrl
+        value = if (loadThumbnail) {
+            withContext(Dispatchers.IO) {
+                PreviewStore.load(context, entry.url, forDownload = true)?.preview?.thumbnailUrl
+            }
+        } else {
+            null
         }
     }
     Card(
@@ -464,6 +469,32 @@ private fun DownloadQueueCard(entry: DownloadQueueEntry) {
     }
 }
 
+@Composable
+internal fun DownloadQueueCardPreview() {
+    val now = remember { System.currentTimeMillis() }
+    val entry = remember {
+        DownloadQueueEntry(
+            id = 42,
+            url = "https://www.youtube.com/watch?v=preview",
+            title = "Длинное семейное видео: поездка к озеру и прогулка всей семьёй",
+            requestJson = "{}",
+            status = DownloadQueueStatus.RUNNING,
+            createdAt = now,
+            updatedAt = now,
+            percent = 63,
+            bytesReceived = 19L * 1024 * 1024,
+            totalBytes = 31L * 1024 * 1024,
+            speedBytesPerSecond = 2L * 1024 * 1024,
+        )
+    }
+    SkachayPreview {
+        Page {
+            Text("Загрузки", style = MaterialTheme.typography.titleLarge)
+            DownloadQueueCard(entry, loadThumbnail = false)
+        }
+    }
+}
+
 private fun queueProgressLabel(context: Context, entry: DownloadQueueEntry): String {
     val parts = buildList {
         add(entry.percent?.let { "Загружается · $it%" } ?: "Загружается")
@@ -490,8 +521,12 @@ private fun Long.saturatingMultiply(other: Long): Long =
 private fun sendQueueAction(context: Context, id: Int, action: String) {
     val intent = Intent(context, DownloadService::class.java).setAction(action)
         .putExtra(DownloadService.EXTRA_NOTIFICATION_ID, id)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-    else context.startService(intent)
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+        else context.startService(intent)
+    } catch (_: Exception) {
+        Toast.makeText(context, "Не удалось выполнить действие с загрузкой. Откройте приложение и попробуйте ещё раз", Toast.LENGTH_LONG).show()
+    }
 }
 
 private sealed interface HomePreviewState {
@@ -584,8 +619,9 @@ private fun PreviewThumbnail(url: String?) {
         Modifier.size(width = 104.dp, height = 60.dp).clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface),
     ) {
-        if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        val image = bitmap?.asImageBitmap()
+        if (image != null) {
+            Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             Icon(painterResource(R.drawable.ic_download), contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.Center).size(24.dp))

@@ -3,14 +3,22 @@ package ru.skachay.app.download
 import java.io.IOException
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import ru.skachay.app.network.UrlNetworkPolicy
+import ru.skachay.app.network.readUtf8Bounded
 import ru.skachay.app.recipes.RecipeRegistry
 
-class InstagramResolver(private val client: OkHttpClient = OkHttpClient()) : MediaResolver {
+class InstagramResolver(
+    private val client: OkHttpClient = UrlNetworkPolicy.publicHttpsClient(
+        callTimeoutSeconds = 30,
+        allowedRedirectHostSuffixes = setOf("instagram.com"),
+    ),
+) : MediaResolver {
     override fun resolve(url: String): List<ResolvedMedia> {
         if (!InstagramLink.supports(url)) return emptyList()
         val recipe = RecipeRegistry.current.instagram
         if (!recipe.embedEnabled && !recipe.pageEnabled) return emptyList()
-        val code = InstagramLink.shortcode(url) ?: follow(url, recipe.mobileAgent)?.let(InstagramLink::shortcode) ?: return emptyList()
+        val secureUrl = url.toHttps()
+        val code = InstagramLink.shortcode(secureUrl) ?: follow(secureUrl, recipe.mobileAgent)?.let(InstagramLink::shortcode) ?: return emptyList()
         val embed = recipe.embedTemplate.replace("{shortcode}", code)
         val page = recipe.pageTemplate.replace("{shortcode}", code)
         val attempts = buildList {
@@ -39,19 +47,10 @@ class InstagramResolver(private val client: OkHttpClient = OkHttpClient()) : Med
 
     private fun get(url: String, agent: String): String? {
         return try {
-            val request = Request.Builder().url(url).header("User-Agent", agent).build()
+            val request = Request.Builder().url(url.toHttps()).header("User-Agent", agent).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
-                response.body.charStream().use { reader ->
-                    val output = StringBuilder()
-                    val buffer = CharArray(8192)
-                    while (output.length <= MAX_HTML) {
-                        val count = reader.read(buffer)
-                        if (count < 0) return output.toString()
-                        output.append(buffer, 0, count)
-                    }
-                    null
-                }
+                response.body.readUtf8Bounded(MAX_HTML_BYTES)
             }
         } catch (_: IOException) {
             null
@@ -59,6 +58,8 @@ class InstagramResolver(private val client: OkHttpClient = OkHttpClient()) : Med
     }
 
     companion object {
-        private const val MAX_HTML = 2_000_000
+        private const val MAX_HTML_BYTES = 5 * 1024 * 1024
     }
 }
+
+private fun String.toHttps(): String = replaceFirst(Regex("^http://", RegexOption.IGNORE_CASE), "https://")

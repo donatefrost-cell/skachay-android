@@ -100,7 +100,10 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Проверить и скачать") }
         FilledTonalButton(onClick = {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Диагностика Скачай", diagnosticLog(entries)))
+            clipboard.setPrimaryClip(ClipData.newPlainText(
+                "Диагностика Скачай",
+                diagnosticLog(entries, DiagnosticsStore.recentUnhandledExceptions(context)),
+            ))
             Toast.makeText(context, "Журнал скопирован", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Скопировать лог") }
     }

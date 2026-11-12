@@ -77,7 +77,7 @@ internal interface DownloadQueueDao {
     suspend fun clearFinished()
 }
 
-@Database(entities = [DownloadQueueEntry::class], version = 1, exportSchema = false)
+@Database(entities = [DownloadQueueEntry::class], version = 1, exportSchema = true)
 internal abstract class DownloadQueueDatabase : RoomDatabase() {
     abstract fun queue(): DownloadQueueDao
 

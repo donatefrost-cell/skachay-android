@@ -65,8 +65,9 @@ internal class TransferStats(private val now: () -> Long) {
     fun markFirstByte() {
         if (firstByteAt == null) {
             val start = startedAt ?: now().also { startedAt = it }
-            firstByteAt = now()
-            latest = latest.copy(firstByteMillis = (firstByteAt!! - start).coerceAtLeast(0))
+            val firstByte = now()
+            firstByteAt = firstByte
+            latest = latest.copy(firstByteMillis = (firstByte - start).coerceAtLeast(0))
         }
     }
 

@@ -21,6 +21,7 @@ class YtDlpOptionsTest {
     fun selectsCompatible720pWithoutEmbeddingOrReencoding() {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/media.%(ext)s").buildCommand()
         assertTrue(args.contains("--no-playlist"))
+        assertTrue(args.contains("--socket-timeout") && args[args.indexOf("--socket-timeout") + 1] == "30")
         assertTrue(args.any { it.contains("height<=720") && it.contains("avc1") })
         assertTrue(args.contains("--concurrent-fragments") && args.contains("4"))
         assertTrue(args.contains("--merge-output-format") && args.contains("mp4"))
