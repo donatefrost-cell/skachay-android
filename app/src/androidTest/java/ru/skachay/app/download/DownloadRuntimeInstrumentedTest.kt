@@ -7,6 +7,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,6 +16,14 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class DownloadRuntimeInstrumentedTest {
+    @Test
+    fun fileNameTemplateWorksWithAndroidRegex() {
+        assertEquals(
+            "Пример_YouTube",
+            FileNameTemplate.resolve("{title}_{source}", "Пример", "https://youtu.be/example", "YouTube"),
+        )
+    }
+
     @Test
     fun knownSizeDownloadChecksSpaceOnAndroid() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
