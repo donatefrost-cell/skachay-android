@@ -150,6 +150,7 @@ internal object YtDlpRuntime {
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
         embedThumbnail: Boolean = false,
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
+        onNewStream: () -> Unit = {},
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
@@ -180,6 +181,7 @@ internal object YtDlpRuntime {
                         sourceUrl = url,
                         processId = UUID.randomUUID().toString(),
                         callback = { progress, _, line ->
+                            if (line.startsWith("[download] Destination: ")) onNewStream()
                             stageFromYtDlpOutput(line)?.let(onStage)
                             val detailed = YtDlpProgressParser.parse(line)
                             if (detailed != null) {
@@ -218,6 +220,7 @@ internal object YtDlpRuntime {
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
         embedThumbnail: Boolean = false,
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
+        onNewStream: () -> Unit = {},
     ): List<File> {
         require(YouTubePlaylistLink.isPurePlaylist(url))
         initialize(context)
@@ -248,6 +251,7 @@ internal object YtDlpRuntime {
                         sourceUrl = url,
                         processId = UUID.randomUUID().toString(),
                         callback = { progress, _, line ->
+                            if (line.startsWith("[download] Destination: ")) onNewStream()
                             stageFromYtDlpOutput(line)?.let(onStage)
                             val detailed = YtDlpProgressParser.parse(line)
                             if (detailed != null) {

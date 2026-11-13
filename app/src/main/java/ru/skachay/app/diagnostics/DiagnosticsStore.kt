@@ -21,7 +21,16 @@ internal object DiagnosticsStore {
                 putString(key(provider, "status"), DiagnosticStatus.RUNNING.name)
                 putLong(key(provider, "timestamp"), System.currentTimeMillis())
                 DownloadStage.entries.forEach { remove(key(provider, it.name)) }
-                listOf("bytes", "total", "speed", "remaining", "vpn", "warnings", "technical").forEach { remove(key(provider, it)) }
+                listOf(
+                    "error",
+                    "bytes",
+                    "total",
+                    "speed",
+                    "remaining",
+                    "vpn",
+                    "warnings",
+                    "technical",
+                ).forEach { remove(key(provider, it)) }
             }
         return job
     }
@@ -87,7 +96,7 @@ internal object DiagnosticsStore {
         prefs
             .edit {
                 putString(key(provider, "status"), status.name)
-                if (error != null) putString(key(provider, "error"), error)
+                if (error != null) putString(key(provider, "error"), error) else remove(key(provider, "error"))
                 durations.forEach { (stage, millis) -> putLong(key(provider, stage.name), millis) }
                 transfer?.let {
                     putLong(key(provider, "bytes"), it.bytesReceived)
@@ -98,6 +107,31 @@ internal object DiagnosticsStore {
                 }
                 vpnActive?.let { putBoolean(key(provider, "vpn"), it) }
             }
+    }
+
+    @Synchronized
+    fun checkpoint(
+        context: Context,
+        provider: DownloadProvider,
+        job: String,
+        transfer: TransferSnapshot,
+        durations: Map<DownloadStage, Long>,
+        vpnActive: Boolean,
+    ) {
+        val prefs = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        if (prefs.getString(key(provider, "job"), null) != job ||
+            prefs.getString(key(provider, "status"), null) != DiagnosticStatus.RUNNING.name
+        ) {
+            return
+        }
+        prefs.edit {
+            putLong(key(provider, "bytes"), transfer.bytesReceived)
+            if (transfer.totalBytes != null) putLong(key(provider, "total"), transfer.totalBytes) else remove(key(provider, "total"))
+            transfer.averageBytesPerSecond?.let { putLong(key(provider, "speed"), it) }
+            transfer.firstByteMillis?.let { putLong(key(provider, DownloadStage.FIRST_BYTE.name), it) }
+            durations.forEach { (stage, millis) -> putLong(key(provider, stage.name), millis) }
+            putBoolean(key(provider, "vpn"), vpnActive)
+        }
     }
 
     @Synchronized
@@ -132,7 +166,14 @@ internal object DiagnosticsStore {
                 .filter(Char::isLetterOrDigit)
                 .take(80)
                 .ifBlank { "Ошибка" }
-        val entry = System.currentTimeMillis().toString() + " · " + threadName + " · " + errorName
+        val details = runCatching { diagnosticTechnicalSummary(error).replace('\n', ' ').take(500) }.getOrDefault(errorName)
+        val frames =
+            (error.stackTrace.asSequence() + (error.cause?.stackTrace?.asSequence() ?: emptySequence()))
+                .filter { it.className.startsWith("ru.skachay.") }
+                .take(4)
+                .joinToString(" ← ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
+        val entry =
+            System.currentTimeMillis().toString() + " · " + threadName + " · " + details + if (frames.isBlank()) "" else " · $frames"
         preferences.edit(commit = true) { putString(CRASH_KEY, (existing + entry).takeLast(5).joinToString("\n")) }
     }
 

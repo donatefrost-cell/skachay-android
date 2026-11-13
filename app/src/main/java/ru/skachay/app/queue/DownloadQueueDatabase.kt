@@ -50,9 +50,12 @@ internal interface DownloadQueueDao {
     suspend fun getRecoverable(): List<DownloadQueueEntry>
 
     @Query(
-        "UPDATE download_queue SET status = 'FAILED', error = 'Загрузка была прервана. Нажмите «Повторить».', updatedAt = :updatedAt WHERE status IN ('QUEUED', 'RUNNING')",
+        "UPDATE download_queue SET status = 'FAILED', error = 'Загрузка была прервана. Нажмите «Повторить».', updatedAt = :updatedAt WHERE status IN ('QUEUED', 'RUNNING') AND updatedAt < :startedAt",
     )
-    suspend fun markInterrupted(updatedAt: Long): Int
+    suspend fun markInterrupted(
+        startedAt: Long,
+        updatedAt: Long,
+    ): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: DownloadQueueEntry)

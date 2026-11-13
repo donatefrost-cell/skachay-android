@@ -86,6 +86,7 @@ internal fun diagnosticError(
         return "Не удалось подключиться. Проверьте интернет и попробуйте снова."
     }
     val messages = causes.mapNotNull { it.message }.joinToString("\n").lowercase(Locale.ROOT)
+    if (causes.any { it is LinkageError }) return "Ошибка обработки файла. Сведения сохранены в диагностике."
     if (provider == DownloadProvider.YOUTUBE) {
         val unavailableFormat =
             messages.contains("selected format unavailable") ||

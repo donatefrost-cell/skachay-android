@@ -33,6 +33,7 @@ class SkachayApp :
 
     override fun onCreate() {
         super.onCreate()
+        val processStartedAt = System.currentTimeMillis()
         enableDebugStrictMode()
         installUncaughtExceptionLogger()
         DiagnosticsStore.markInterrupted(this)
@@ -40,7 +41,7 @@ class SkachayApp :
         maintenance.execute {
             runCatching {
                 runBlocking(Dispatchers.IO) {
-                    DownloadQueueDatabase.get(this@SkachayApp).queue().markInterrupted(System.currentTimeMillis())
+                    DownloadQueueDatabase.get(this@SkachayApp).queue().markInterrupted(processStartedAt, System.currentTimeMillis())
                 }
             }.onFailure { Log.w("Skachay", "Не удалось восстановить очередь после перезапуска: ${it.javaClass.simpleName}") }
         }

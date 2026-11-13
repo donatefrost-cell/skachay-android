@@ -16,7 +16,6 @@ internal class TransferStats(
     private var startedAt: Long? = null
     private var firstByteAt: Long? = null
     private var bytesBeforeStream = 0L
-    private var totalBeforeStream = 0L
     private var lastStreamReceived = 0L
     private var lastStreamTotal: Long? = null
     private var latest = TransferSnapshot(0, null, null, null, null)
@@ -26,7 +25,6 @@ internal class TransferStats(
         startedAt = now()
         firstByteAt = null
         bytesBeforeStream = 0
-        totalBeforeStream = 0
         lastStreamReceived = 0
         lastStreamTotal = null
         latest = TransferSnapshot(0, null, null, null, null)
@@ -40,17 +38,11 @@ internal class TransferStats(
         val current = now()
         val start = startedAt ?: current.also { startedAt = it }
         val safeStreamReceived = received.coerceAtLeast(0)
-        if (safeStreamReceived < lastStreamReceived) {
-            bytesBeforeStream += lastStreamReceived
-            totalBeforeStream += lastStreamTotal ?: 0
-            lastStreamReceived = 0
-            lastStreamTotal = null
-        }
         lastStreamReceived = safeStreamReceived
         if (total != null && total >= 0) lastStreamTotal = total
         val safeReceived = bytesBeforeStream + safeStreamReceived
         val validTotal = total?.takeIf { it >= 0 }
-        val combinedTotal = if (validTotal != null || totalBeforeStream > 0) totalBeforeStream + (validTotal ?: 0) else null
+        val combinedTotal = validTotal?.let { bytesBeforeStream + maxOf(it, safeStreamReceived) }
         if (safeReceived > 0 && firstByteAt == null) firstByteAt = current
         val elapsed = (current - start).coerceAtLeast(0)
         val average = if (elapsed > 0 && safeReceived > 0) (safeReceived.toDouble() * 1000 / elapsed).roundToLong() else null
@@ -67,6 +59,15 @@ internal class TransferStats(
                 remainingMillis = remaining,
             )
         return latest
+    }
+
+    @Synchronized
+    fun nextStream(previousComplete: Boolean = false) {
+        if (previousComplete || (lastStreamTotal != null && lastStreamReceived >= requireNotNull(lastStreamTotal))) {
+            bytesBeforeStream += lastStreamReceived
+        }
+        lastStreamReceived = 0
+        lastStreamTotal = null
     }
 
     @Synchronized

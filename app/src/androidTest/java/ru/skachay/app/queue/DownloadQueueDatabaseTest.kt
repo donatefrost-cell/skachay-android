@@ -52,7 +52,7 @@ class DownloadQueueDatabaseTest {
                 ),
             )
 
-            assertEquals(1, dao.markInterrupted(3))
+            assertEquals(1, dao.markInterrupted(3, 3))
             val failed = requireNotNull(dao.get(18))
             assertEquals(DownloadQueueStatus.FAILED, failed.status)
             assertEquals(42, failed.percent)
@@ -86,4 +86,23 @@ class DownloadQueueDatabaseTest {
         assertEquals(arrayListOf("first", "second"), restored.getStringArrayListExtra(DownloadService.EXTRA_PLAYLIST_QUEUE))
         assertEquals(55, restored.getIntExtra(DownloadService.EXTRA_NOTIFICATION_ID, 0))
     }
+
+    @Test
+    fun startupRecoveryDoesNotInterruptNewDownloads() =
+        runBlocking {
+            val dao = database.queue()
+            val newEntry =
+                DownloadQueueEntry(
+                    id = 19,
+                    url = "https://youtu.be/abc123",
+                    title = "Видео",
+                    requestJson = "{}",
+                    status = DownloadQueueStatus.RUNNING,
+                    createdAt = 100,
+                    updatedAt = 100,
+                )
+            dao.upsert(newEntry)
+            assertEquals(0, dao.markInterrupted(100, 101))
+            assertEquals(DownloadQueueStatus.RUNNING, requireNotNull(dao.get(19)).status)
+        }
 }

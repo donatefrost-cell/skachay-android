@@ -5,7 +5,7 @@ import java.util.Date
 import java.util.Locale
 
 internal object FileNameTemplate {
-    private val token = Regex("\\{([a-z]+)}")
+    private val token = Regex("\\{([a-z]+)\\}")
 
     fun resolve(
         template: String?,

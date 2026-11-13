@@ -1,5 +1,8 @@
 package ru.skachay.app.download
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.media.MediaExtractor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.OkHttpClient
@@ -11,11 +14,53 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import ru.skachay.app.diagnostics.DiagnosticStatus
+import ru.skachay.app.diagnostics.DiagnosticsStore
+import ru.skachay.app.diagnostics.DownloadProvider
+import ru.skachay.app.diagnostics.DownloadStage
+import ru.skachay.app.diagnostics.TransferSnapshot
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class DownloadRuntimeInstrumentedTest {
+    @Test
+    fun interruptedProgressAndNestedCrashCauseAreRetained() {
+        val context =
+            object : ContextWrapper(InstrumentationRegistry.getInstrumentation().targetContext) {
+                override fun getSharedPreferences(
+                    name: String,
+                    mode: Int,
+                ) = super.getSharedPreferences("diagnostics-test", mode)
+            }
+        context
+            .getSharedPreferences("diagnostics-test", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val job = DiagnosticsStore.begin(context, DownloadProvider.YOUTUBE)
+        DiagnosticsStore.checkpoint(
+            context,
+            DownloadProvider.YOUTUBE,
+            job,
+            TransferSnapshot(120, 200, 1000, 40, 2000),
+            mapOf(DownloadStage.TRANSFER to 3000),
+            vpnActive = true,
+        )
+        DiagnosticsStore.recordUnhandledException(
+            context,
+            Thread.currentThread(),
+            ExceptionInInitializerError(IllegalArgumentException("sample")),
+        )
+        DiagnosticsStore.markInterrupted(context)
+        val entry = DiagnosticsStore.read(context).first { it.provider == DownloadProvider.YOUTUBE }
+        assertEquals(DiagnosticStatus.INTERRUPTED, entry.status)
+        assertEquals(120L, entry.bytesReceived)
+        assertEquals(200L, entry.bytesTotal)
+        assertEquals(3000L, entry.durations[DownloadStage.TRANSFER])
+        assertTrue(DiagnosticsStore.recentUnhandledExceptions(context).last().contains("IllegalArgumentException"))
+    }
+
     @Test
     fun fileNameTemplateWorksWithAndroidRegex() {
         assertEquals(
@@ -81,6 +126,23 @@ class DownloadRuntimeInstrumentedTest {
             run("-f", "lavfi", "-i", "sine=frequency=1000", "-t", "0.3", "-c:a", "aac", audio.absolutePath)
             YouTubeDirectTransfer.merge(context, video, audio, output)
             assertTrue(output.isFile && output.length() > 0)
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(output.absolutePath)
+                val tracks = (0 until extractor.trackCount).map { extractor.getTrackFormat(it).getString("mime").orEmpty() }
+                assertTrue(tracks.any { it.startsWith("video/") })
+                assertTrue(tracks.any { it.startsWith("audio/") })
+            } finally {
+                extractor.release()
+            }
+            val name = FileNameTemplate.resolve("{title}", "Пример", "https://youtu.be/example", "YouTube")
+            val uri = MediaStoreWriter(context).save(output, "video/mp4", name)
+            try {
+                val saved = requireNotNull(context.contentResolver.openInputStream(uri)).use { it.readBytes() }
+                assertArrayEquals(output.readBytes(), saved)
+            } finally {
+                context.contentResolver.delete(uri, null, null)
+            }
         } finally {
             folder.deleteRecursively()
         }

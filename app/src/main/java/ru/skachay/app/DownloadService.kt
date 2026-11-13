@@ -612,12 +612,17 @@ class DownloadService : Service() {
             directory = File(cacheDir, "job-${UUID.randomUUID()}")
             if (!directory.mkdir()) throw IOException("Could not create temporary folder")
             var lastUpdate = 0L
+            var lastCheckpoint = 0L
             val report: (Int?) -> Unit = { percent ->
                 control.checkpoint()
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastUpdate >= 500 || percent == 100) {
                     lastUpdate = now
                     val transfer = transferStats.snapshot()
+                    if (now - lastCheckpoint >= 5_000) {
+                        lastCheckpoint = now
+                        DiagnosticsStore.checkpoint(this, provider, job, transfer, timer.snapshot(), vpnActive())
+                    }
                     val notification = progressNotification(percent, url, id, settings.quality, fileName, transfer, mediaTitle)
                     notifySafely(id, notification, transfer.averageBytesPerSecond)
                     updateQueueProgress(id, percent, transfer)
@@ -693,6 +698,7 @@ class DownloadService : Service() {
                                         subtitleAutomatic = subtitleAutomatic,
                                         embedSubtitles = embedSubtitles,
                                         onDetailedProgress = detailedReport,
+                                        onNewStream = { transferStats.nextStream() },
                                         videoBitrateLimit = settings.videoBitrateLimit,
                                         embedThumbnail = embedThumbnail,
                                     )
@@ -787,6 +793,7 @@ class DownloadService : Service() {
                                                 subtitleAutomatic = subtitleAutomatic,
                                                 embedSubtitles = embedSubtitles,
                                                 onDetailedProgress = detailedReport,
+                                                onNewStream = { transferStats.nextStream() },
                                                 videoBitrateLimit = settings.videoBitrateLimit,
                                                 embedThumbnail = embedThumbnail,
                                             )
@@ -815,6 +822,7 @@ class DownloadService : Service() {
                                         subtitleAutomatic,
                                         embedSubtitles,
                                         onDetailedProgress = detailedReport,
+                                        onNewStream = { transferStats.nextStream() },
                                         videoBitrateLimit = settings.videoBitrateLimit,
                                         embedThumbnail = embedThumbnail,
                                     )
@@ -831,6 +839,7 @@ class DownloadService : Service() {
                                 onStage = timer::switchTo,
                                 retries = settings.retries,
                                 onDetailedProgress = detailedReport,
+                                onNewStream = { transferStats.nextStream() },
                                 videoBitrateLimit = settings.videoBitrateLimit,
                                 embedThumbnail = embedThumbnail,
                             )
@@ -859,6 +868,7 @@ class DownloadService : Service() {
                                     timer::switchTo,
                                     retries = settings.retries,
                                     onDetailedProgress = detailedReport,
+                                    onNewStream = { transferStats.nextStream() },
                                     embedThumbnail = embedThumbnail,
                                 )
                             } else {
@@ -956,7 +966,8 @@ class DownloadService : Service() {
                                     "application/x-subrip"
                             }
                         }
-                    } catch (error: Exception) {
+                    } catch (error: Throwable) {
+                        if (error !is Exception && error !is LinkageError) throw error
                         output.forEach { (uri, _) -> deleteSavedUri(uri) }
                         throw error
                     }
@@ -993,7 +1004,8 @@ class DownloadService : Service() {
                 id,
                 resultNotification(mediaTitle ?: "Готово", resultMessage, uri, mime, url, id, settings.quality, fileName, thumbnail),
             )
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
+            if (error !is Exception && error !is LinkageError) throw error
             if (control.isCancelled()) {
                 updateQueueStatus(id, DownloadQueueStatus.CANCELLED)
                 notificationCenter.discard(id)
@@ -1072,6 +1084,7 @@ class DownloadService : Service() {
                 ?: throw IOException("Unsupported media source")
         val files =
             items.mapIndexed { index, item ->
+                if (index > 0) transferStats.nextStream(previousComplete = true)
                 if (!ResolvedMediaNetworkPolicy.isAllowed(sourceUrl, item.url)) throw IOException("Unsafe media address")
                 val file = File(directory, "item-$index.tmp")
                 sourceDownloader.download(

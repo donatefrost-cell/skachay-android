@@ -28,6 +28,13 @@ internal class StageTimer(
     }
 
     @Synchronized
+    fun snapshot(): Map<DownloadStage, Long> {
+        val result = durations.toMutableMap()
+        current?.let { result[it] = (result[it] ?: 0) + (now() - started).coerceAtLeast(0) }
+        return result
+    }
+
+    @Synchronized
     fun finish(): Map<DownloadStage, Long> {
         val time = now()
         current?.let { durations[it] = (durations[it] ?: 0) + (time - started).coerceAtLeast(0) }
