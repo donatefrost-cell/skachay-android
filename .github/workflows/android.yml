@@ -105,6 +105,8 @@ jobs:
           name: skachay-debug
           path: |
             app/build/outputs/apk/debug/*.apk
+            app/build/outputs/androidTest-results/connected/debug/**
+            app/build/reports/androidTests/connected/debug/**
             app/schemas/**/*.json
             app/gradle.lockfile
           if-no-files-found: warn
