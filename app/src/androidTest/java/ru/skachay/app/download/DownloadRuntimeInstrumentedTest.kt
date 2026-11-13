@@ -19,17 +19,21 @@ class DownloadRuntimeInstrumentedTest {
     fun knownSizeDownloadChecksSpaceOnAndroid() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val bytes = byteArrayOf(1, 2, 3, 4)
-        val client = OkHttpClient.Builder().addInterceptor { chain ->
-            val range = chain.request().header("Range") != null
-            Response.Builder()
-                .request(chain.request())
-                .protocol(Protocol.HTTP_1_1)
-                .code(if (range) 206 else 200)
-                .message("OK")
-                .apply { if (range) header("Content-Range", "bytes 0-0/4") }
-                .body((if (range) bytes.copyOf(1) else bytes).toResponseBody())
-                .build()
-        }.build()
+        val client =
+            OkHttpClient
+                .Builder()
+                .addInterceptor { chain ->
+                    val range = chain.request().header("Range") != null
+                    Response
+                        .Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(if (range) 206 else 200)
+                        .message("OK")
+                        .apply { if (range) header("Content-Range", "bytes 0-0/4") }
+                        .body((if (range) bytes.copyOf(1) else bytes).toResponseBody())
+                        .build()
+                }.build()
         val output = File(context.cacheDir, "space-check-test.bin")
         try {
             DirectDownloader(client).download("https://example.com/file", output, connections = 1)
@@ -45,13 +49,19 @@ class DownloadRuntimeInstrumentedTest {
         YtDlpRuntime.initialize(context)
         val folder = File(context.cacheDir, "ffmpeg-runtime-test").apply { mkdirs() }
         val ffmpeg = File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
+
         fun run(vararg args: String) {
-            val process = ProcessBuilder(listOf(ffmpeg.absolutePath, "-nostdin", "-y") + args)
-                .redirectErrorStream(true)
-                .apply { environment()["LD_LIBRARY_PATH"] = FfmpegRuntime.libraryPath(context) }
-                .start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            assertTrue("FFmpeg timed out: $output", process.waitFor(30, TimeUnit.SECONDS))
+            val log = File(folder, "ffmpeg.log")
+            val process =
+                ProcessBuilder(listOf(ffmpeg.absolutePath, "-nostdin", "-y") + args)
+                    .redirectErrorStream(true)
+                    .redirectOutput(log)
+                    .apply { environment()["LD_LIBRARY_PATH"] = FfmpegRuntime.libraryPath(context) }
+                    .start()
+            val finished = process.waitFor(30, TimeUnit.SECONDS)
+            if (!finished) process.destroyForcibly()
+            val output = log.takeIf(File::exists)?.readText().orEmpty()
+            assertTrue("FFmpeg timed out: $output", finished)
             assertTrue("FFmpeg failed: $output", process.exitValue() == 0)
         }
         try {

@@ -112,9 +112,10 @@ internal object YouTubeDirectTransfer {
                     "-movflags",
                     "+faststart",
                     output.absolutePath,
-                ).redirectErrorStream(true).apply {
-                    environment()["LD_LIBRARY_PATH"] = FfmpegRuntime.libraryPath(context)
-                }.start()
+                ).redirectErrorStream(true)
+                    .apply {
+                        environment()["LD_LIBRARY_PATH"] = FfmpegRuntime.libraryPath(context)
+                    }.start()
             } catch (error: IOException) {
                 throw IOException("Could not start FFmpeg", error)
             }
