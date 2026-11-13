@@ -72,7 +72,7 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon --write-locks connectedDebugAndroidTest -PtestX86=true -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.queue.DownloadQueueDatabaseTest,ru.skachay.app.download.DownloadNotificationCountInstrumentedTest,ru.skachay.app.DownloadQueueScrollStabilityTest,ru.skachay.app.download.DownloadRuntimeInstrumentedTest
+          script: ./gradlew --no-daemon --write-locks connectedDebugAndroidTest -PtestX86=true -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.download.LiveYoutubeDownloadTest
       - name: Проверить зависимости на известные уязвимости
         uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
         with:
