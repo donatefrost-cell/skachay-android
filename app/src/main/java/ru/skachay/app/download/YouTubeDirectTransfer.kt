@@ -16,6 +16,7 @@ internal object YouTubeDirectTransfer {
             direct()
         } catch (error: IOException) {
             if (Thread.currentThread().isInterrupted) throw error
+            if (error is IncompleteRangeTransferException) throw error
             onDirectFailure(error)
             try {
                 fallback()

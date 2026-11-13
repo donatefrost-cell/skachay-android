@@ -14,6 +14,10 @@ import java.nio.file.StandardCopyOption
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
+internal class IncompleteRangeTransferException(
+    cause: IOException,
+) : IOException("Range transfer failed after retries", cause)
+
 class DirectDownloader(
     private val client: OkHttpClient = OkHttpClient(),
     private val retryDelay: (Long) -> Unit = { Thread.sleep(it) },
@@ -65,6 +69,11 @@ class DirectDownloader(
                     downloadRanges(url, temporary, info, connections, headers, progress, retries)
                 } catch (error: IOException) {
                     if (Thread.currentThread().isInterrupted) throw error
+                    if (error.cause !is UnusableRangeException) {
+                        val status = (error.cause as? HttpStatusException)?.code
+                        if (status != null && status in setOf(401, 403, 404, 410)) throw error
+                        throw IncompleteRangeTransferException(error)
+                    }
                     downloadWhole(url, temporary, headers, progress, retries)
                 }
             }
@@ -132,7 +141,7 @@ class DirectDownloader(
                         retry(retries) {
                             val completed = part.length()
                             if (completed > 0 && (info.validator == null || completed >= end - start + 1)) {
-                                throw UnusableRangeException("Cannot safely resume this range")
+                                throw IOException("Cannot safely resume this range")
                             }
                             val requestStart = start + completed
                             val request =
