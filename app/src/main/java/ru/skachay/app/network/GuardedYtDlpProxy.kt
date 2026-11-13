@@ -230,6 +230,12 @@ internal class GuardedYtDlpProxy(
 }
 
 internal object YtDlpHostPolicy {
+    private val youtubeRemoteComponentSuffixes =
+        setOf(
+            "github.com",
+            "githubusercontent.com",
+        )
+
     private val youtubeSuffixes =
         setOf(
             "youtube.com",
@@ -245,7 +251,7 @@ internal object YtDlpHostPolicy {
 
     fun allowedSuffixes(sourceUrl: String): Set<String> =
         when {
-            SourceType.isYouTube(sourceUrl) -> youtubeSuffixes
+            SourceType.isYouTube(sourceUrl) -> youtubeSuffixes + youtubeRemoteComponentSuffixes
             InstagramLink.supports(sourceUrl) -> requireNotNull(ResolvedMediaNetworkPolicy.redirectHostSuffixes(sourceUrl))
             TikTokLink.supports(sourceUrl) -> requireNotNull(ResolvedMediaNetworkPolicy.redirectHostSuffixes(sourceUrl))
             else -> emptySet()
