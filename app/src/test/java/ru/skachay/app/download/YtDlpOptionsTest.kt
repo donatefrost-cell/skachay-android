@@ -127,6 +127,22 @@ class YtDlpOptionsTest {
     }
 
     @Test
+    fun freshFallbackUsesTheVideoUrlAndKeepsTheSelectedFormat() {
+        val selected = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/video.%(ext)s",
+                    selected = selected,
+                ).buildCommand()
+
+        assertTrue(args.contains("https://youtu.be/example"))
+        assertFalse(args.contains("--load-info-json"))
+        assertTrue(args.contains("137+bestaudio[ext=m4a]/137+bestaudio"))
+    }
+
+    @Test
     fun preservesAudioOnlyAndVideoWithoutAudioSelections() {
         val video = AvailableFormat("137", "mp4", "avc1", null, 1080, 30, null, null)
         val audio = AvailableFormat("140", "m4a", null, "mp4a", null, null, 128, null)

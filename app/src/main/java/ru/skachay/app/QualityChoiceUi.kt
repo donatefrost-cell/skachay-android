@@ -280,7 +280,20 @@ internal fun QualityChoiceSheetContent(
                             )
                         }
                     }
-                    SelectedFormatCard(selection, selectedFormat, estimatedSizeBytes)
+                }
+            }
+
+            if (!loading && preview != null) {
+                item(key = "selected-format") {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Выбранный формат", style = MaterialTheme.typography.titleMedium)
+                        SelectedFormatCard(selection, selectedFormat, estimatedSizeBytes)
+                    }
                 }
             }
 
@@ -1024,8 +1037,31 @@ private fun SelectedFormatCard(
         } else {
             listOfNotNull(
                 format.fps?.takeIf { it > 30 }?.let { "$it к/с" },
+                if (!format.hasAudio) {
+                    if (selection.videoOnly) "Без звука" else "Аудио добавится отдельно"
+                } else {
+                    null
+                },
                 if (isGalleryCompatible(format)) "Работает в большинстве галерей" else "Может не воспроизводиться в галерее",
             ).joinToString(" · ")
+        }
+    val details =
+        videoDetails ?: when {
+            format == null -> {
+                "Проверьте выбранные фильтры"
+            }
+
+            selection.audio && selection.audioExport == AudioExport.MP3 -> {
+                "Будет перекодировано в MP3 · ${selection.audioBitrate.kilobits}\u00a0кбит/с"
+            }
+
+            selection.audio -> {
+                "Исходное аудио · ${format.extension.uppercase(Locale.ROOT)}"
+            }
+
+            else -> {
+                "Исходный формат видео"
+            }
         }
     Card(
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
@@ -1037,7 +1073,7 @@ private fun SelectedFormatCard(
             Column(Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    videoDetails ?: if (format == null) "Проверьте выбранные фильтры" else "Исходный формат аудио",
+                    details,
                     style = MaterialTheme.typography.bodySmall,
                     color =
                         if (format != null &&

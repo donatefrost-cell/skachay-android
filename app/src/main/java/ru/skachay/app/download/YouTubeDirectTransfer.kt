@@ -7,6 +7,24 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 internal object YouTubeDirectTransfer {
+    fun <T> withFallback(
+        direct: () -> T,
+        onDirectFailure: (IOException) -> Unit,
+        fallback: () -> T,
+    ): T =
+        try {
+            direct()
+        } catch (error: IOException) {
+            if (Thread.currentThread().isInterrupted) throw error
+            onDirectFailure(error)
+            try {
+                fallback()
+            } catch (fallbackError: Exception) {
+                fallbackError.addSuppressed(error)
+                throw fallbackError
+            }
+        }
+
     fun download(
         context: Context,
         streams: YouTubeStreams,

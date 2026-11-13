@@ -21,7 +21,7 @@ internal object DiagnosticsStore {
                 putString(key(provider, "status"), DiagnosticStatus.RUNNING.name)
                 putLong(key(provider, "timestamp"), System.currentTimeMillis())
                 DownloadStage.entries.forEach { remove(key(provider, it.name)) }
-                listOf("bytes", "total", "speed", "remaining", "vpn", "warnings").forEach { remove(key(provider, it)) }
+                listOf("bytes", "total", "speed", "remaining", "vpn", "warnings", "technical").forEach { remove(key(provider, it)) }
             }
         return job
     }
@@ -56,6 +56,19 @@ internal object DiagnosticsStore {
         val sanitized = warnings.map { DiagnosticTextRedactor.redact(it).take(MAX_WARNING_CHARS) }
         val combined = (existing + sanitized).distinctBy { it.lowercase() }.takeLast(24)
         prefs.edit { putString(key(provider, "warnings"), combined.joinToString("\n")) }
+    }
+
+    @Synchronized
+    fun recordTechnicalFailure(
+        context: Context,
+        provider: DownloadProvider,
+        details: String,
+    ) {
+        context
+            .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit {
+                putString(key(provider, "technical"), DiagnosticTextRedactor.redact(details).take(MAX_WARNING_CHARS))
+            }
     }
 
     @Synchronized
@@ -160,6 +173,7 @@ internal object DiagnosticsStore {
                     .orEmpty()
                     .filter(String::isNotBlank)
                     .map(DiagnosticTextRedactor::redact),
+                prefs.getString(key(provider, "technical"), null)?.let(DiagnosticTextRedactor::redact),
             )
         }
     }

@@ -3,12 +3,15 @@ package ru.skachay.app.diagnostics
 import ru.skachay.app.download.InstagramLink
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
+import java.io.IOException
+import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.net.ssl.SSLException
 
 internal enum class DownloadProvider(
     val label: String,
@@ -59,6 +62,7 @@ internal data class DiagnosticEntry(
     val remainingMillis: Long? = null,
     val vpnActive: Boolean? = null,
     val engineWarnings: List<String> = emptyList(),
+    val technicalDetails: String? = null,
 )
 
 internal fun providerFor(url: String): DownloadProvider =
@@ -73,15 +77,102 @@ internal fun diagnosticError(
     provider: DownloadProvider,
     error: Throwable,
 ): String {
-    val causes = generateSequence(error) { it.cause }.take(8)
-    if (causes.any { it is UnknownHostException || it is SocketTimeoutException || it is SocketException }) {
+    val causes = throwableDetails(error)
+    if (causes.any {
+            it is UnknownHostException || it is SocketTimeoutException || it is SocketException ||
+                it is ConnectException || it is SSLException
+        }
+    ) {
         return "Не удалось подключиться. Проверьте интернет и попробуйте снова."
+    }
+    val messages = causes.mapNotNull { it.message }.joinToString("\n").lowercase(Locale.ROOT)
+    if (provider == DownloadProvider.YOUTUBE) {
+        val unavailableFormat =
+            messages.contains("selected format unavailable") ||
+                (messages.contains("requested format") && messages.contains("not available")) ||
+                messages.contains("format is not available")
+        val invalidLink =
+            messages.contains("unsupported url") ||
+                messages.contains("invalid url") ||
+                messages.contains("malformed url") ||
+                messages.contains("not a valid url") ||
+                Regex("\\bhttp(?: error)?\\s*(?:404|410)\\b").containsMatchIn(messages) ||
+                messages.contains("video unavailable") ||
+                messages.contains("private video")
+        val serverUnavailable =
+            Regex("\\bhttp(?: error)?\\s*(?:429|5\\d\\d)\\b").containsMatchIn(messages) ||
+                messages.contains("server error") ||
+                messages.contains("service unavailable")
+        val streamUnavailable =
+            messages.contains("no media file produced") ||
+                messages.contains("no formats found") ||
+                messages.contains("stream unavailable") ||
+                messages.contains("direct media stream unavailable") ||
+                messages.contains("could not get stream") ||
+                messages.contains("unable to download video data") ||
+                Regex("\\bhttp(?: error)?\\s*(?:401|403)\\b").containsMatchIn(messages)
+        return when {
+            unavailableFormat -> {
+                "Выбранный формат больше недоступен. Откройте выбор качества и выберите другой вариант."
+            }
+
+            invalidLink -> {
+                "Ссылка неверная или видео недоступно. Проверьте ссылку и доступ к ролику."
+            }
+
+            serverUnavailable -> {
+                "Сервис видеохостинга временно не отвечает. Повторите попытку позже."
+            }
+
+            streamUnavailable -> {
+                "Не удалось получить поток видео. Повторите попытку или выберите другое качество."
+            }
+
+            error is IOException -> {
+                "Не удалось получить поток видео. Проверьте ссылку и попробуйте ещё раз."
+            }
+
+            else -> {
+                "Сервис не отдал видео. Проверьте доступность ссылки и повторите попытку."
+            }
+        }
     }
     return when (provider) {
         DownloadProvider.INSTAGRAM -> "Публикация может быть закрыта, удалена или Instagram изменился. Проверьте ссылку."
         DownloadProvider.TIKTOK -> "Публикация может быть закрыта или недоступна. Проверьте ссылку."
         else -> "Не получилось скачать. Проверьте доступность ссылки и попробуйте снова."
     }
+}
+
+internal fun diagnosticTechnicalSummary(error: Throwable): String {
+    val summary =
+        throwableDetails(error)
+            .joinToString(" ← ") { cause ->
+                val name = cause.javaClass.simpleName.ifBlank { "Ошибка" }
+                val message =
+                    cause.message
+                        ?.let(DiagnosticTextRedactor::redact)
+                        ?.take(300)
+                        .orEmpty()
+                if (message.isBlank()) name else "$name: $message"
+            }
+    return summary.take(2_000)
+}
+
+private fun throwableDetails(error: Throwable): List<Throwable> {
+    val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+    val pending = java.util.ArrayDeque<Throwable>()
+    val result = mutableListOf<Throwable>()
+    pending.addLast(error)
+    while (pending.isNotEmpty() && result.size < 12) {
+        val next = pending.removeFirst()
+        if (seen.add(next)) {
+            result += next
+            next.cause?.let(pending::addLast)
+            next.suppressed.take(4).forEach(pending::addLast)
+        }
+    }
+    return result
 }
 
 internal fun diagnosticLog(
@@ -97,6 +188,7 @@ internal fun diagnosticLog(
             appendLine("${entry.provider.label}: ${entry.status.label}")
             if (entry.timestamp > 0) appendLine("Последняя попытка: ${dateFormat.format(Date(entry.timestamp))}")
             entry.lastError?.let { appendLine("Последняя ошибка: ${DiagnosticTextRedactor.redact(it)}") }
+            entry.technicalDetails?.let { appendLine("Техническая причина: ${DiagnosticTextRedactor.redact(it)}") }
             entry.engineWarnings.forEach { appendLine("Предупреждение yt-dlp: ${DiagnosticTextRedactor.redact(it)}") }
             DownloadStage.entries.forEach { stage ->
                 val duration =

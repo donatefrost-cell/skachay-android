@@ -78,6 +78,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                     Text(entry.provider.label, style = MaterialTheme.typography.titleLarge)
                     Text(entry.status.label, style = MaterialTheme.typography.titleMedium)
                     entry.lastError?.let { Text("Последняя ошибка: $it") }
+                    entry.technicalDetails?.let { Text("Техническая причина: $it", style = MaterialTheme.typography.bodySmall) }
                     if (entry.engineWarnings.isNotEmpty()) {
                         Text("Предупреждения yt-dlp", style = MaterialTheme.typography.titleSmall)
                         entry.engineWarnings.forEach { warning ->

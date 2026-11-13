@@ -131,8 +131,8 @@ internal object FormatSelectionResolver {
             compareBy<AvailableFormat> { it.height ?: 0 }
                 .thenBy { if (isGalleryCompatible(it)) 1 else 0 }
                 .thenBy { -kotlin.math.abs((it.fps ?: 30) - 30) }
-                .thenBy { it.videoBitrate ?: 0 }
                 .thenBy { if (it.hasAudio) 1 else 0 }
+                .thenBy { it.videoBitrate ?: 0 }
                 .thenBy { it.sizeBytes ?: 0L },
         )
     }

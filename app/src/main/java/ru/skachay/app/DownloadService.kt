@@ -35,6 +35,7 @@ import ru.skachay.app.diagnostics.TransferSnapshot
 import ru.skachay.app.diagnostics.TransferStats
 import ru.skachay.app.diagnostics.YtDlpProgress
 import ru.skachay.app.diagnostics.diagnosticError
+import ru.skachay.app.diagnostics.diagnosticTechnicalSummary
 import ru.skachay.app.diagnostics.formatBytes
 import ru.skachay.app.diagnostics.formatDuration
 import ru.skachay.app.diagnostics.formatSpeed
@@ -292,7 +293,7 @@ class DownloadService : Service() {
                         if (control.isCancelled()) {
                             updateQueueStatus(id, DownloadQueueStatus.CANCELLED)
                         } else {
-                            Log.w("Skachay", "Очередь ${providerFor(url).label}: ${error.javaClass.simpleName}")
+                            Log.w("SkachayDownload", "Очередь ${providerFor(url).label}: ${diagnosticTechnicalSummary(error)}")
                             updateQueueStatus(id, DownloadQueueStatus.FAILED, diagnosticError(providerFor(url), error))
                             notificationCenter.discard(id)
                         }
@@ -305,9 +306,11 @@ class DownloadService : Service() {
                 leasedFolderUri = null
             } catch (error: Exception) {
                 DownloadFolderGrantRegistry.release(this@DownloadService, leasedFolderUri)
-                Log.w("Skachay", "Не удалось начать загрузку: ${error.javaClass.simpleName}")
+                Log.w("SkachayDownload", "Не удалось начать загрузку: ${diagnosticTechnicalSummary(error)}")
                 val provider = providerFor(url)
                 val job = DiagnosticsStore.begin(this, provider)
+                val technicalDetails = diagnosticTechnicalSummary(error)
+                DiagnosticsStore.recordTechnicalFailure(this, provider, technicalDetails)
                 DiagnosticsStore.finish(this, provider, job, DiagnosticStatus.FAILED, emptyMap(), diagnosticError(provider, error))
                 updateQueueStatus(id, DownloadQueueStatus.FAILED, diagnosticError(provider, error))
                 notifySafely(
@@ -699,6 +702,7 @@ class DownloadService : Service() {
                                 downloadedPlaylistFiles.first()
                             } else {
                                 val extractionStarted = SystemClock.elapsedRealtime()
+                                val youtubeDirectory = requireNotNull(directory)
                                 val cached =
                                     if (usePreview || formatId != null) {
                                         PreviewStore.load(this, url, forDownload = true) ?: PreviewStore.getOrFetch(this, url)
@@ -731,65 +735,77 @@ class DownloadService : Service() {
                                     }
                                 if (streams != null) {
                                     transferStats.start()
-                                    try {
-                                        YouTubeDirectTransfer.download(
-                                            context = this,
-                                            streams = streams,
-                                            directory = directory,
-                                            connections = settings.connections,
-                                            retries = settings.retries,
-                                            onStage = timer::switchTo,
-                                            onProgress = { received, total ->
-                                                val sample = transferStats.update(received, total)
-                                                val percent =
-                                                    sample.totalBytes
-                                                        ?.takeIf { it > 0 }
-                                                        ?.let { (sample.bytesReceived * 100 / it).coerceIn(0, 100).toInt() }
-                                                report(percent)
-                                            },
-                                            onFirstByte = { transferStats.markFirstByte() },
-                                        )
-                                    } catch (error: IOException) {
-                                        if (Thread.currentThread().isInterrupted) throw error
-                                        directory
-                                            .listFiles()
-                                            ?.filter {
-                                                it.name.startsWith(
-                                                    "youtube-",
-                                                ) || it.name == "video.mp4"
-                                            }?.forEach(File::delete)
-                                        transferStats.start()
-                                        YtDlpRuntime.download(
-                                            this,
-                                            url,
-                                            directory,
-                                            settings.quality,
-                                            report,
-                                            timer::switchTo,
-                                            cached.file,
-                                            selected,
-                                            videoOnly,
-                                            settings.retries,
-                                            audioExport,
-                                            audioBitrate,
-                                            subtitleLanguage,
-                                            subtitleAutomatic,
-                                            embedSubtitles,
-                                            onDetailedProgress = detailedReport,
-                                            videoBitrateLimit = settings.videoBitrateLimit,
-                                            embedThumbnail = embedThumbnail,
-                                        )
-                                    }
+                                    YouTubeDirectTransfer.withFallback(
+                                        direct = {
+                                            YouTubeDirectTransfer.download(
+                                                context = this,
+                                                streams = streams,
+                                                directory = youtubeDirectory,
+                                                connections = settings.connections,
+                                                retries = settings.retries,
+                                                onStage = timer::switchTo,
+                                                onProgress = { received, total ->
+                                                    val sample = transferStats.update(received, total)
+                                                    val percent =
+                                                        sample.totalBytes
+                                                            ?.takeIf { it > 0 }
+                                                            ?.let { (sample.bytesReceived * 100 / it).coerceIn(0, 100).toInt() }
+                                                    report(percent)
+                                                },
+                                                onFirstByte = { transferStats.markFirstByte() },
+                                            )
+                                        },
+                                        onDirectFailure = { error ->
+                                            val selectedFormatLabel = selected?.id ?: "авто"
+                                            val failureDetails = diagnosticTechnicalSummary(error)
+                                            Log.w(
+                                                "SkachayDownload",
+                                                "Прямая загрузка YouTube не удалась; запускаю yt-dlp со свежим извлечением. " +
+                                                    "Формат=$selectedFormatLabel; причина=$failureDetails",
+                                            )
+                                            youtubeDirectory
+                                                .listFiles()
+                                                ?.filter { it.name.startsWith("youtube-") || it.name == "video.mp4" }
+                                                ?.forEach(File::delete)
+                                            transferStats.start()
+                                        },
+                                        fallback = {
+                                            YtDlpRuntime.download(
+                                                this,
+                                                url,
+                                                youtubeDirectory,
+                                                settings.quality,
+                                                report,
+                                                timer::switchTo,
+                                                infoJson = null,
+                                                selected = selected,
+                                                videoOnly = videoOnly,
+                                                retries = settings.retries,
+                                                audioExport = audioExport,
+                                                audioBitrate = audioBitrate,
+                                                subtitleLanguage = subtitleLanguage,
+                                                subtitleAutomatic = subtitleAutomatic,
+                                                embedSubtitles = embedSubtitles,
+                                                onDetailedProgress = detailedReport,
+                                                videoBitrateLimit = settings.videoBitrateLimit,
+                                                embedThumbnail = embedThumbnail,
+                                            )
+                                        },
+                                    )
                                 } else {
+                                    Log.i(
+                                        "SkachayDownload",
+                                        "YouTube пойдёт через yt-dlp со свежим извлечением, формат=${selected?.id ?: "авто"}",
+                                    )
                                     transferStats.start()
                                     YtDlpRuntime.download(
                                         this,
                                         url,
-                                        directory,
+                                        youtubeDirectory,
                                         settings.quality,
                                         report,
                                         timer::switchTo,
-                                        cached.file,
+                                        null,
                                         selected,
                                         videoOnly,
                                         settings.retries,
@@ -985,7 +1001,8 @@ class DownloadService : Service() {
             }
             activeUrls.remove(historyKey, control)
             controls.remove(id, control)
-            Log.w("Skachay", "Загрузка ${provider.label}: ${error.javaClass.simpleName}")
+            val technicalDetails = diagnosticTechnicalSummary(error)
+            Log.w("SkachayDownload", "Загрузка ${provider.label}, формат=${formatId ?: "авто"}: $technicalDetails")
             transferStats.snapshot().firstByteMillis?.let { timer.record(DownloadStage.FIRST_BYTE, it) }
             val friendlyError =
                 if (error is WifiOnlyRequiredException) {
@@ -1006,6 +1023,7 @@ class DownloadService : Service() {
                 transfer = transferStats.snapshot(),
                 vpnActive = vpnActive(),
             )
+            DiagnosticsStore.recordTechnicalFailure(this, provider, technicalDetails)
             updateQueueStatus(id, DownloadQueueStatus.FAILED, friendlyError)
             notifySafely(
                 id,

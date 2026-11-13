@@ -152,6 +152,13 @@ class FormatSelectionTest {
     }
 
     @Test
+    fun defaultSelectionPrefersProgressiveMp4WhenQualityIsOtherwiseEqual() {
+        val selected = FormatSelectionResolver.resolve(formats, FormatSelection(resolution = 720))
+
+        assertEquals("h264-720-muxed", selected?.id)
+    }
+
+    @Test
     fun qualityResolutionChoicesOnlyShowUniqueAvailableVideoHeights() {
         val withUnsupportedOnlyResolution =
             formats + video("vp9-1440-only", "webm", "vp09.00.40.08", 1440, 30, 5_000)
