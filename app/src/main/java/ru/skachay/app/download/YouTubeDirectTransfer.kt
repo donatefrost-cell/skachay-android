@@ -82,7 +82,7 @@ internal object YouTubeDirectTransfer {
         return output
     }
 
-    private fun merge(
+    internal fun merge(
         context: Context,
         video: File,
         audio: File,
@@ -112,7 +112,9 @@ internal object YouTubeDirectTransfer {
                     "-movflags",
                     "+faststart",
                     output.absolutePath,
-                ).redirectErrorStream(true).start()
+                ).redirectErrorStream(true).apply {
+                    environment()["LD_LIBRARY_PATH"] = FfmpegRuntime.libraryPath(context)
+                }.start()
             } catch (error: IOException) {
                 throw IOException("Could not start FFmpeg", error)
             }

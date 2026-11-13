@@ -43,6 +43,7 @@ internal object YtDlpRuntime {
             val started = android.os.SystemClock.elapsedRealtime()
             YoutubeDL.init(context.applicationContext)
             FFmpeg.init(context.applicationContext)
+            FfmpegRuntime.prepare(context.applicationContext)
             initializationDurationMs = (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
             initialized = true
         }

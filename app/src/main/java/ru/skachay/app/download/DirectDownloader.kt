@@ -261,7 +261,7 @@ class DirectDownloader(
 }
 
 internal object DownloadSpacePolicy {
-    fun availableBytes(directory: File): Long = Files.getFileStore(directory.toPath()).usableSpace
+    fun availableBytes(directory: File): Long = directory.usableSpace
 
     fun hasEnough(
         availableBytes: Long,

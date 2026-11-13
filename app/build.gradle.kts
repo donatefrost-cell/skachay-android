@@ -60,6 +60,7 @@ require(signingValues.all { it.isNullOrBlank() } || signingValues.none { it.isNu
 android {
     namespace = "ru.skachay.app"
     compileSdk = 37
+    ndkVersion = "28.2.13676358"
     experimentalProperties["android.experimental.enableScreenshotTest"] = true
 
     defaultConfig {
@@ -72,7 +73,19 @@ android {
         testInstrumentationRunnerArguments["disableAnalytics"] = "true"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += if (providers.gradleProperty("testX86").orNull == "true") listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
