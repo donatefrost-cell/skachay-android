@@ -19,6 +19,17 @@ class YtDlpHostPolicyTest {
     }
 
     @Test
+    fun youtubeEjsRemoteComponentHostsAreAllowedButLookalikesAreRejected() {
+        assertTrue(YtDlpHostPolicy.isAllowedConnectHost(YOUTUBE_URL, "github.com", 443))
+        assertTrue(YtDlpHostPolicy.isAllowedConnectHost(YOUTUBE_URL, "release-assets.githubusercontent.com", 443))
+        assertFalse(YtDlpHostPolicy.isAllowedConnectHost(YOUTUBE_URL, "github.com.evil.example", 443))
+        assertFalse(
+            YtDlpHostPolicy.isAllowedConnectHost(YOUTUBE_URL, "release-assets.githubusercontent.com.evil.example", 443),
+        )
+        assertFalse(YtDlpHostPolicy.isAllowedConnectHost(INSTAGRAM_URL, "github.com", 443))
+    }
+
+    @Test
     fun proxyRejectsCleartextPortsAndUnsupportedSources() {
         assertFalse(YtDlpHostPolicy.isAllowedConnectHost(YOUTUBE_URL, "www.youtube.com", 80))
         assertFalse(YtDlpHostPolicy.isAllowedConnectHost("https://example.com/video", "example.com", 443))
