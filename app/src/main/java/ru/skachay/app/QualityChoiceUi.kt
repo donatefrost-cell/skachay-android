@@ -932,40 +932,47 @@ private fun VideoResolutionCard(
                 if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
             ),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(22.dp)
-                    .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
-                    .padding(5.dp)
-                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape),
-            )
-            Column(Modifier.weight(1f).padding(start = 8.dp, end = 4.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
+                        .padding(5.dp)
+                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape),
+                )
                 Text(
                     "${height}p",
+                    Modifier.weight(1f).padding(start = 8.dp),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 )
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     detail,
+                    Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    size,
+                    style = MaterialTheme.typography.labelLarge,
+                    color =
+                        when {
+                            largeFile -> MaterialTheme.colorScheme.error
+                            size.contains("неизвестен") -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Text(
-                size,
-                style = MaterialTheme.typography.labelLarge,
-                color =
-                    when {
-                        largeFile -> MaterialTheme.colorScheme.error
-                        size.contains("неизвестен") -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.onSurface
-                    },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
@@ -980,8 +987,8 @@ private fun resolutionDetail(
             height >= 2160 -> "4K"
             height >= 1440 -> "2K"
             height >= 1080 -> "Full HD"
-            height >= 720 -> "Рекомендуем"
-            height <= 360 -> "Меньше трафика"
+            height >= 720 -> "Советуем"
+            height <= 360 -> "Экономия"
             else -> "Стандартное качество"
         }
 
