@@ -1,5 +1,6 @@
 package ru.skachay.app.download
 
+import android.annotation.SuppressLint
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -261,6 +262,8 @@ class DirectDownloader(
 }
 
 internal object DownloadSpacePolicy {
+    // Use the currently available space; do not clear other apps' caches for a download.
+    @SuppressLint("UsableSpace")
     fun availableBytes(directory: File): Long = directory.usableSpace
 
     fun hasEnough(
