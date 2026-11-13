@@ -489,7 +489,7 @@ private fun DownloadQueueSection() {
 }
 
 @Composable
-private fun DownloadQueueCard(
+internal fun DownloadQueueCard(
     entry: DownloadQueueEntry,
     loadThumbnail: Boolean = true,
 ) {
@@ -538,6 +538,7 @@ private fun DownloadQueueCard(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 maxLines = 2,
+                minLines = 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             if (entry.status == DownloadQueueStatus.RUNNING || entry.status == DownloadQueueStatus.QUEUED) {

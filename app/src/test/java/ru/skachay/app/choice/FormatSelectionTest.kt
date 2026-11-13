@@ -152,6 +152,40 @@ class FormatSelectionTest {
     }
 
     @Test
+    fun qualityResolutionChoicesOnlyShowUniqueAvailableVideoHeights() {
+        val withUnsupportedOnlyResolution =
+            formats + video("vp9-1440-only", "webm", "vp09.00.40.08", 1440, 30, 5_000)
+
+        assertEquals(listOf(360, 720, 1080), availableVideoResolutions(withUnsupportedOnlyResolution))
+    }
+
+    @Test
+    fun resolutionChoicesFallBackToAvailableVideoWhenNoCompatibleFormatExists() {
+        val formatsWithoutH264Mp4 = listOf(video("vp9-720", "webm", "vp09.00.40.08", 720, 30, 3_000))
+
+        assertEquals(listOf(720), availableVideoResolutions(formatsWithoutH264Mp4))
+    }
+
+    @Test
+    fun videoOnlyResolutionChoicesUseVideoOnlyFormats() {
+        val formats =
+            listOf(
+                video("h264-720-muxed", "mp4", "avc1.4d401f", 720, 30, 2_500, audioCodec = "mp4a.40.2"),
+                video("vp9-480-silent", "webm", "vp09.00.40.08", 480, 30, 1_200),
+            )
+
+        assertEquals(listOf(720), availableVideoResolutions(formats))
+        assertEquals(listOf(480), availableVideoResolutions(formats, videoOnly = true))
+    }
+
+    @Test
+    fun resolutionMapsToTheClosestQualityPresetWithoutRaisingTheCap() {
+        assertEquals(Quality.P360, qualityPresetForResolution(360))
+        assertEquals(Quality.P2160, qualityPresetForResolution(2160))
+        assertEquals(Quality.MAX, qualityPresetForResolution(4320))
+    }
+
+    @Test
     fun maximumResolutionKeepsLowerFormatsWhenExactHeightIsUnavailable() {
         val selection = FormatSelection(resolution = 480, qualityPreset = Quality.P480)
 
