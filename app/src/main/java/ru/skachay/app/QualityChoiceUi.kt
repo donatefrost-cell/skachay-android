@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +23,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -87,16 +87,17 @@ import ru.skachay.app.choice.FormatSelection
 import ru.skachay.app.choice.FormatSelectionResolver
 import ru.skachay.app.choice.SubtitleTrack
 import ru.skachay.app.choice.VideoPreview
+import ru.skachay.app.choice.availableVideoResolutions
 import ru.skachay.app.choice.codecFamily
 import ru.skachay.app.choice.filterAdvancedFormats
 import ru.skachay.app.choice.formatAdvancedBitrateRu
 import ru.skachay.app.choice.formatAdvancedSizeRu
 import ru.skachay.app.choice.formatMediaSizeRu
 import ru.skachay.app.choice.isGalleryCompatible
+import ru.skachay.app.choice.qualityPresetForResolution
 import ru.skachay.app.download.AudioBitrate
 import ru.skachay.app.download.AudioExport
 import ru.skachay.app.settings.Quality
-import ru.skachay.app.settings.QualityPresetPresentation
 import ru.skachay.app.settings.VideoBitrateLimit
 import java.util.Locale
 
@@ -139,6 +140,10 @@ internal fun QualityChoiceSheetContent(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (initiallyScrollToFormats) 5 else 0)
     val visibleFormats =
         remember(preview, selection) { preview?.let { FormatSelectionResolver.candidates(it.formats, selection) }.orEmpty() }
+    val resolutionChoices =
+        remember(preview?.formats, selection.videoOnly) {
+            preview?.formats?.let { availableVideoResolutions(it, selection.videoOnly) }.orEmpty()
+        }
     var exactFormatFilter by remember(preview, initiallyShowAllFormats) {
         mutableStateOf(if (initiallyShowAllFormats) AdvancedFormatFilter.ALL else AdvancedFormatFilter.COMPATIBLE)
     }
@@ -218,46 +223,64 @@ internal fun QualityChoiceSheetContent(
                 }
             } else {
                 item {
-                    Text("Качество", style = MaterialTheme.typography.titleMedium)
-                    val selectedQuality = QualityPresetPresentation.normalized(selection.qualityPreset)
-                    Text(QualityPresetPresentation.summary(selectedQuality), style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        QualityPresetPresentation.hint(selectedQuality),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        QualityPresetPresentation.options.forEach { option ->
-                            val isSelected = selectedQuality == option.quality
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    onSelectionChanged(
-                                        selection.copy(
-                                            resolution = option.quality.maximumHeight,
-                                            qualityPreset = option.quality,
-                                            customBitrateKbps = null,
-                                            pinnedFormatId = null,
-                                        ),
-                                    )
-                                },
-                                label = { Text(option.label, maxLines = 1, softWrap = false) },
-                                modifier =
-                                    Modifier
-                                        .defaultMinSize(minWidth = 72.dp)
-                                        .heightIn(min = 48.dp)
-                                        .semantics {
-                                            contentDescription = "${option.label}, ${if (isSelected) "выбрано" else "не выбрано"}"
-                                            stateDescription = if (isSelected) "выбрано" else "не выбрано"
-                                        },
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Качество", style = MaterialTheme.typography.titleMedium)
+                        val selectedResolution =
+                            selection.resolution?.takeIf { it in resolutionChoices }
+                                ?: selectedFormat?.height?.takeIf { it in resolutionChoices }
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val columns = if (maxWidth < 350.dp || LocalDensity.current.fontScale > 1.2f) 1 else 2
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                maxItemsInEachRow = columns,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                resolutionChoices.forEach { height ->
+                                    val option =
+                                        selection
+                                            .withFilters(
+                                                resolution = height,
+                                                bitrateStop = selection.bitrateStop,
+                                                codec = null,
+                                                fps = null,
+                                                container = null,
+                                                audio = false,
+                                            ).copy(
+                                                qualityPreset = qualityPresetForResolution(height),
+                                                videoOnly = selection.videoOnly,
+                                            )
+                                    val optionFormat =
+                                        remember(preview, selection.videoOnly, height) {
+                                            preview?.let { FormatSelectionResolver.resolve(it.formats, option) }
+                                        }
+                                    val optionSize =
+                                        remember(preview, selection.videoOnly, height) {
+                                            preview?.let { FormatSelectionResolver.estimateBytes(it, option) }
+                                        }
+                                    val detail = resolutionDetail(height, optionFormat)
+                                    VideoResolutionCard(
+                                        height = height,
+                                        detail = detail,
+                                        size = formatMediaSizeRu(optionSize),
+                                        largeFile = optionSize != null && optionSize >= 500_000_000L,
+                                        selected = selectedResolution == height,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        onSelectionChanged(option)
+                                    }
+                                }
+                            }
+                        }
+                        if (resolutionChoices.isEmpty()) {
+                            Text(
+                                "Разрешения не найдены. Попробуйте повторить запрос к видео.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
                     SelectedFormatCard(selection, selectedFormat, estimatedSizeBytes)
-                    if (!selection.audio) {
-                        VideoBitrateSlider(preview, selection, selectedFormat, estimatedSizeBytes, onSelectionChanged)
-                    }
                 }
             }
 
@@ -307,19 +330,16 @@ internal fun QualityChoiceSheetContent(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("Все форматы и настройки", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                if (advancedExpanded) "Скрыть дополнительно" else "Дополнительно",
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            Text(
-                                "Фильтры и точные форматы",
+                                if (advancedExpanded) "Свернуть настройки" else "Битрейт, точные форматы и параметры файла",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Icon(
                             painterResource(R.drawable.ic_back),
-                            contentDescription = if (advancedExpanded) "Свернуть" else "Развернуть",
+                            contentDescription = if (advancedExpanded) "Свернуть настройки" else "Открыть форматы и настройки",
                             modifier = Modifier.padding(start = 6.dp).size(20.dp).rotate(if (advancedExpanded) 90f else -90f),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -328,6 +348,11 @@ internal fun QualityChoiceSheetContent(
                 if (advancedExpanded) {
                     item {
                         AdvancedFilters(preview, selection, onSelectionChanged)
+                    }
+                    if (!selection.audio) {
+                        item {
+                            VideoBitrateSlider(preview, selection, selectedFormat, estimatedSizeBytes, onSelectionChanged)
+                        }
                     }
                     item {
                         Text("Точный формат", style = MaterialTheme.typography.titleMedium)
@@ -879,6 +904,88 @@ internal fun audioSourceSubtitle(format: AvailableFormat?): String {
 }
 
 @Composable
+private fun VideoResolutionCard(
+    height: Int,
+    detail: String,
+    size: String,
+    largeFile: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier
+            .heightIn(min = 68.dp)
+            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+            .semantics {
+                contentDescription = "${height}p, $detail, $size"
+                stateDescription = if (selected) "выбрано" else "не выбрано"
+            },
+        shape = RoundedCornerShape(16.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            ),
+        border =
+            BorderStroke(
+                if (selected) 1.5.dp else 1.dp,
+                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            ),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
+                    .padding(5.dp)
+                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape),
+            )
+            Column(Modifier.weight(1f).padding(start = 8.dp, end = 4.dp)) {
+                Text(
+                    "${height}p",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                size,
+                style = MaterialTheme.typography.labelLarge,
+                color =
+                    when {
+                        largeFile -> MaterialTheme.colorScheme.error
+                        size.contains("неизвестен") -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun resolutionDetail(
+    height: Int,
+    format: AvailableFormat?,
+): String =
+    format?.fps?.takeIf { it > 30 }?.let { "$it к/с" }
+        ?: when {
+            height >= 4320 -> "8K"
+            height >= 2160 -> "4K"
+            height >= 1440 -> "2K"
+            height >= 1080 -> "Full HD"
+            height >= 720 -> "Рекомендуем"
+            height <= 360 -> "Меньше трафика"
+            else -> "Стандартное качество"
+        }
+
+@Composable
 private fun SelectedFormatCard(
     selection: FormatSelection,
     format: AvailableFormat?,
@@ -901,8 +1008,17 @@ private fun SelectedFormatCard(
             }
 
             else -> {
-                "Видео · ${format.height ?: "?"}p" + (format.fps?.takeIf { it > 30 }?.let { " · $it к/с" } ?: "")
+                "${format.extension.uppercase(Locale.ROOT)} · ${codecFamily(format)}"
             }
+        }
+    val videoDetails =
+        if (format == null || selection.audio) {
+            null
+        } else {
+            listOfNotNull(
+                format.fps?.takeIf { it > 30 }?.let { "$it к/с" },
+                if (isGalleryCompatible(format)) "Работает в большинстве галерей" else "Может не воспроизводиться в галерее",
+            ).joinToString(" · ")
         }
     Card(
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
@@ -911,15 +1027,10 @@ private fun SelectedFormatCard(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = format != null, onClick = null)
-            Column(Modifier.weight(1f).padding(start = 8.dp, end = 8.dp)) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    when {
-                        format == null -> "Проверьте выбранные фильтры"
-                        isGalleryCompatible(format) -> "Работает в большинстве галерей"
-                        else -> "Может не воспроизводиться в галерее"
-                    },
+                    videoDetails ?: if (format == null) "Проверьте выбранные фильтры" else "Исходный формат аудио",
                     style = MaterialTheme.typography.bodySmall,
                     color =
                         if (format != null &&
@@ -1380,7 +1491,7 @@ internal fun ChoiceSheetPreview(variant: ChoicePreviewVariant = ChoicePreviewVar
                             loading = loading,
                             slowSearch = false,
                             errorMessage = null,
-                            advancedMode = true,
+                            advancedMode = advanced,
                             selection = selection,
                             selectedFormat = selected,
                             rememberChoice = false,

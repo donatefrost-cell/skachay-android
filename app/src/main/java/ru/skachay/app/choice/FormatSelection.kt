@@ -161,6 +161,32 @@ internal object FormatSelectionResolver {
     }
 }
 
+/** Resolution choices for the simple picker; prefer gallery-friendly MP4/H.264 when available. */
+internal fun availableVideoResolutions(
+    formats: List<AvailableFormat>,
+    videoOnly: Boolean = false,
+): List<Int> {
+    val videoFormats = formats.filter { it.hasVideo && it.height != null && (!videoOnly || !it.hasAudio) }
+    val compatibleFormats = videoFormats.filter(::isGalleryCompatible)
+    return (compatibleFormats.ifEmpty { videoFormats })
+        .mapNotNull { it.height }
+        .distinct()
+        .sorted()
+}
+
+internal fun qualityPresetForResolution(height: Int): Quality =
+    when {
+        height > 2160 -> Quality.MAX
+        height >= 2160 -> Quality.P2160
+        height >= 1440 -> Quality.P1440
+        height >= 1080 -> Quality.P1080
+        height >= 720 -> Quality.P720
+        height >= 480 -> Quality.P480
+        height >= 360 -> Quality.P360
+        height >= 240 -> Quality.P240
+        else -> Quality.P144
+    }
+
 private object YouTubeSizeEstimator {
     fun estimatedFormatBytes(
         format: AvailableFormat,
