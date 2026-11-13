@@ -43,6 +43,6 @@ class YouTubeDirectTransferFallbackTest {
         }
 
         assertSame(fallbackFailure, thrown)
-        assertEquals("Expired direct URL", thrown?.suppressed?.singleOrNull()?.message)
+        assertEquals(listOf("Expired direct URL"), fallbackFailure.suppressed.map { it.message })
     }
 }

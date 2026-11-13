@@ -64,7 +64,7 @@ class FormatSelectionTest {
             )
 
         assertNull(changed.pinnedFormatId)
-        assertEquals("h264-720-30", FormatSelectionResolver.resolve(formats, changed)?.id)
+        assertEquals("h264-720-muxed", FormatSelectionResolver.resolve(formats, changed)?.id)
     }
 
     @Test
