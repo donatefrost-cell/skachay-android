@@ -23,6 +23,7 @@ internal object YtDlpOptions {
         embedThumbnail: Boolean = false,
         allowPlaylist: Boolean = false,
         playlistAudioOnly: Boolean = false,
+        segmentedFallback: Boolean = false,
     ): YoutubeDLRequest =
         YoutubeDLRequest(if (infoJson == null) listOf(url) else emptyList()).apply {
             require(!playlistAudioOnly || allowPlaylist)
@@ -36,7 +37,10 @@ internal object YtDlpOptions {
             addRetries(this, retries)
             infoJson?.let { addOption("--load-info-json", it) }
             val format =
-                if (playlistAudioOnly) {
+                if (segmentedFallback) {
+                    require(SourceType.isYouTube(url) && !allowPlaylist && infoJson == null)
+                    requireNotNull(segmentedVideoSelector(selected, videoOnly))
+                } else if (playlistAudioOnly) {
                     "bestaudio[ext=m4a]/bestaudio"
                 } else if (selected != null) {
                     require(Regex("[A-Za-z0-9._-]{1,80}").matches(selected.id))
@@ -59,6 +63,7 @@ internal object YtDlpOptions {
                     "bv[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/b"
                 }
             addOption("--format", format)
+            if (segmentedFallback) addOption("--abort-on-unavailable-fragments")
             val audioOnly = playlistAudioOnly || (selected != null && !selected.hasVideo && selected.hasAudio)
             val outputAudioFormat =
                 audioExport.ytDlpFormat
@@ -85,6 +90,31 @@ internal object YtDlpOptions {
             addOption("--merge-output-format", "mp4")
             addOption("--output", output)
         }
+
+    fun segmentedVideoSelector(
+        selected: AvailableFormat?,
+        videoOnly: Boolean,
+    ): String? {
+        val height = selected?.height ?: return null
+        val codec =
+            selected.videoCodec?.substringBefore('.')?.takeIf { it in setOf("avc1", "av01", "vp9", "vp09", "hev1", "hvc1") }
+                ?: return null
+        val extension = selected.extension.takeIf { it in setOf("mp4", "webm") } ?: return null
+        val fps = selected.fps?.let { "[fps=?$it]" }.orEmpty()
+        val video = "[height=$height]$fps[vcodec^=$codec][ext=$extension][protocol^=m3u8]"
+        return if (videoOnly) {
+            "bv$video"
+        } else {
+            "b$video/bv$video+ba[protocol^=m3u8]/bv$video+ba[ext=m4a]/bv$video+ba"
+        }
+    }
+
+    fun shouldTrySegmentedVideo(message: String): Boolean {
+        if (message.contains("not a bot", ignoreCase = true)) return false
+        val unavailableFormat =
+            message.contains("requested format", ignoreCase = true) && message.contains("not available", ignoreCase = true)
+        return unavailableFormat || Regex("""(?i)\bHTTP(?: Error)?\s+(403|410)\b""").containsMatchIn(message)
+    }
 
     fun addRetries(
         request: YoutubeDLRequest,

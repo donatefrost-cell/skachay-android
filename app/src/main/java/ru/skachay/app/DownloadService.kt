@@ -825,6 +825,7 @@ class DownloadService : Service() {
                                                 embedSubtitles = embedSubtitles,
                                                 onDetailedProgress = detailedReport,
                                                 onNewStream = { transferStats.nextStream() },
+                                                onRestart = transferStats::start,
                                                 videoBitrateLimit = settings.videoBitrateLimit,
                                                 embedThumbnail = embedThumbnail,
                                             )
@@ -856,6 +857,7 @@ class DownloadService : Service() {
                                         onNewStream = { transferStats.nextStream() },
                                         videoBitrateLimit = settings.videoBitrateLimit,
                                         embedThumbnail = embedThumbnail,
+                                        onRestart = transferStats::start,
                                     )
                                 }
                             }

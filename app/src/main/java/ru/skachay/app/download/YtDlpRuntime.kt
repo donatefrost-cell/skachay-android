@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import ru.skachay.app.R
@@ -184,47 +185,74 @@ internal object YtDlpRuntime {
         embedThumbnail: Boolean = false,
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
         onNewStream: () -> Unit = {},
+        onRestart: () -> Unit = {},
     ): File {
         initialize(context)
         val template = File(directory, "video.%(ext)s").absolutePath
         RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
-                    onStage(DownloadStage.EXTRACTION)
-                    val request =
-                        YtDlpOptions.request(
-                            url,
-                            template,
-                            quality,
-                            infoJson?.absolutePath,
-                            selected,
-                            videoOnly,
-                            retries,
-                            audioExport,
-                            audioBitrate,
-                            subtitleLanguage,
-                            subtitleAutomatic,
-                            embedSubtitles,
-                            videoBitrateLimit,
-                            embedThumbnail,
+                    fun executeDownload(segmented: Boolean) {
+                        onStage(DownloadStage.EXTRACTION)
+                        val request =
+                            YtDlpOptions.request(
+                                url,
+                                template,
+                                quality,
+                                infoJson?.absolutePath,
+                                selected,
+                                videoOnly,
+                                retries,
+                                audioExport,
+                                audioBitrate,
+                                subtitleLanguage,
+                                subtitleAutomatic,
+                                embedSubtitles,
+                                videoBitrateLimit,
+                                embedThumbnail,
+                                segmentedFallback = segmented,
+                            )
+                        addRuntimeSupport(context, url, request)
+                        executeWithWarningCapture(
+                            request = request,
+                            sourceUrl = url,
+                            processId = UUID.randomUUID().toString(),
+                            callback = { progress, _, line ->
+                                if (line.startsWith("[download] Destination: ")) onNewStream()
+                                stageFromYtDlpOutput(line)?.let(onStage)
+                                val detailed = YtDlpProgressParser.parse(line)
+                                if (detailed != null) {
+                                    onDetailedProgress(detailed)
+                                } else {
+                                    onProgress(progress.takeIf { it in 0f..100f }?.toInt())
+                                }
+                            },
+                            onWarnings = onWarnings,
                         )
-                    addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(
-                        request = request,
-                        sourceUrl = url,
-                        processId = UUID.randomUUID().toString(),
-                        callback = { progress, _, line ->
-                            if (line.startsWith("[download] Destination: ")) onNewStream()
-                            stageFromYtDlpOutput(line)?.let(onStage)
-                            val detailed = YtDlpProgressParser.parse(line)
-                            if (detailed != null) {
-                                onDetailedProgress(detailed)
-                            } else {
-                                onProgress(progress.takeIf { it in 0f..100f }?.toInt())
-                            }
-                        },
-                        onWarnings = onWarnings,
-                    )
+                    }
+
+                    try {
+                        executeDownload(segmented = false)
+                    } catch (error: YoutubeDLException) {
+                        if (infoJson != null || !SourceType.isYouTube(url) ||
+                            YtDlpOptions.segmentedVideoSelector(selected, videoOnly) == null ||
+                            !YtDlpOptions.shouldTrySegmentedVideo(error.message.orEmpty())
+                        ) {
+                            throw error
+                        }
+                        directory
+                            .listFiles()
+                            .orEmpty()
+                            .filter { it.isFile && it.name.startsWith("video.") }
+                            .forEach(File::delete)
+                        onRestart()
+                        try {
+                            executeDownload(segmented = true)
+                        } catch (fallback: YoutubeDLException) {
+                            fallback.addSuppressed(error)
+                            throw fallback
+                        }
+                    }
                 }
             },
             update = { update(context, selectedChannel(context)) },

@@ -1,5 +1,6 @@
 package ru.skachay.app.download
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,6 +9,26 @@ import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.VideoBitrateLimit
 
 class YtDlpOptionsTest {
+    @Test
+    fun segmentedFallbackKeepsSelectedVideoQualityAndCombinesWithAudio() {
+        val selected = AvailableFormat("136", "mp4", "avc1.4D401F", null, 720, 30, null, null)
+        val args =
+            YtDlpOptions
+                .request(
+                    "https://youtu.be/example",
+                    "/cache/video.%(ext)s",
+                    selected = selected,
+                    segmentedFallback = true,
+                ).buildCommand()
+        val filters = "[height=720][fps=?30][vcodec^=avc1][ext=mp4][protocol^=m3u8]"
+        val selector = args[args.indexOf("--format") + 1]
+        assertTrue(selector.startsWith("b$filters/bv$filters+ba[protocol^=m3u8]"))
+        assertTrue(args.contains("--abort-on-unavailable-fragments"))
+        assertEquals("bv$filters", YtDlpOptions.segmentedVideoSelector(selected, videoOnly = true))
+        assertTrue(YtDlpOptions.shouldTrySegmentedVideo("unable to download video data: HTTP Error 403: Forbidden"))
+        assertFalse(YtDlpOptions.shouldTrySegmentedVideo("Please confirm you're not a bot. HTTP Error 403"))
+    }
+
     @Test
     fun appliesConfiguredNetworkRetriesToVideoAndFragments() {
         val args = YtDlpOptions.request("https://youtu.be/example", "/cache/out.%(ext)s", retries = 3).buildCommand()
