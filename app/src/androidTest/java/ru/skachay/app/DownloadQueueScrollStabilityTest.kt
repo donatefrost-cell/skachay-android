@@ -7,10 +7,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -24,6 +28,22 @@ import ru.skachay.app.queue.DownloadQueueStatus
 class DownloadQueueScrollStabilityTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun socialDownloadButtonIsImmediatelyClickableWithALongList() {
+        var clicked = false
+        composeRule.setContent {
+            SkachayTheme {
+                SocialDownloadSheet(onDismiss = {}, onDownload = { clicked = true }, downloadEnabled = true) {
+                    items(60) { index ->
+                        Text("Фото " + (index + 1), Modifier.height(100.dp))
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithText("Скачать").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(true, clicked) }
+    }
 
     @Test
     fun progressUpdatesDoNotChangeScrollRangeAtTheBottom() {

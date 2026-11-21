@@ -195,7 +195,7 @@ class DirectDownloader(
         val etag: String?,
     )
 
-    private class HttpStatusException(
+    internal class HttpStatusException(
         val code: Int,
     ) : IOException("HTTP $code")
 

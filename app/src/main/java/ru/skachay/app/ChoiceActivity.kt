@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -54,6 +55,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -437,43 +439,37 @@ class ChoiceActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    ModalBottomSheet(onDismissRequest = { finish() }, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(
-                                    max =
-                                        with(LocalDensity.current) {
-                                            LocalWindowInfo.current.containerSize.height
-                                                .toDp() * 0.92f
-                                        },
-                                ).padding(horizontal = 20.dp),
-                        ) {
-                            Text("Скачать", style = MaterialTheme.typography.headlineSmall)
-                            when (val previewState = state) {
-                                PreviewState.Loading -> {
-                                    LoadingPreview(slowSearch) { finish() }
-                                }
+                    SocialDownloadSheet(
+                        onDismiss = { finish() },
+                        onDownload = { beginDownload(false) },
+                        downloadEnabled =
+                            state !is PreviewState.Loading && !invalidFileName &&
+                                (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()),
+                    ) {
+                        item { Text("Скачать", style = MaterialTheme.typography.headlineSmall) }
+                        when (val previewState = state) {
+                            PreviewState.Loading -> {
+                                item { LoadingPreview(slowSearch) { finish() } }
+                            }
 
-                                PreviewState.Failed -> {
-                                    Text("Не удалось получить список файлов. Можно попробовать скачать автоматически.")
-                                }
+                            PreviewState.Failed -> {
+                                item { Text("Не удалось получить список файлов. Можно попробовать скачать автоматически.") }
+                            }
 
-                                PreviewState.NotNeeded -> {
-                                    Text("Для этой ссылки приложение выберет доступный файл автоматически.")
-                                }
+                            PreviewState.NotNeeded -> {
+                                item { Text("Для этой ссылки приложение выберет доступный файл автоматически.") }
+                            }
 
-                                is PreviewState.Ready -> {
-                                    PreviewCard(previewState.cached, "YouTube")
-                                }
+                            is PreviewState.Ready -> {
+                                item { PreviewCard(previewState.cached, "YouTube") }
+                            }
 
-                                is PreviewState.SocialReady -> {
+                            is PreviewState.SocialReady -> {
+                                item {
                                     Text("Выберите файлы публикации", style = MaterialTheme.typography.titleMedium)
                                     TextButton(onClick = {
                                         selectedItems =
-                                            if (selectedItems.size ==
-                                                previewState.cached.items.size
-                                            ) {
+                                            if (selectedItems.size == previewState.cached.items.size) {
                                                 emptySet()
                                             } else {
                                                 previewState.cached.items.indices
@@ -482,30 +478,51 @@ class ChoiceActivity : ComponentActivity() {
                                     }, modifier = Modifier.heightIn(min = 56.dp)) {
                                         Text(if (selectedItems.size == previewState.cached.items.size) "Снять все" else "Выбрать все")
                                     }
-                                    FileNameField(fileName, invalidFileName) { fileName = it }
-                                    LazyColumn(Modifier.weight(1f)) {
-                                        itemsIndexed(previewState.cached.items) { index, media ->
-                                            SocialChoiceRow(media, index, index in selectedItems) {
-                                                selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
-                                            }
-                                        }
-                                    }
                                 }
                             }
-                            if (state !is PreviewState.SocialReady && !isYouTube) {
-                                FileNameField(fileName, invalidFileName) { fileName = it }
+                        }
+                        item { FileNameField(fileName, invalidFileName) { fileName = it } }
+                        val items = (state as? PreviewState.SocialReady)?.cached?.items.orEmpty()
+                        itemsIndexed(items) { index, media ->
+                            SocialChoiceRow(media, index, index in selectedItems) {
+                                selectedItems = if (index in selectedItems) selectedItems - index else selectedItems + index
                             }
-                            Button(
-                                enabled =
-                                    state !is PreviewState.Loading && !invalidFileName &&
-                                        (state !is PreviewState.SocialReady || selectedItems.isNotEmpty()),
-                                onClick = { beginDownload(false) },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp),
-                            ) { Text("Скачать") }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SocialDownloadSheet(
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+    downloadEnabled: Boolean,
+    content: LazyListScope.() -> Unit,
+) {
+    val maxHeight =
+        with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.height
+                .toDp() * 0.92f
+        }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).padding(horizontal = 20.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                content = content,
+            )
+            Button(
+                enabled = downloadEnabled,
+                onClick = onDownload,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).heightIn(min = 56.dp),
+            ) { Text("Скачать") }
         }
     }
 }

@@ -14,9 +14,12 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.edit
 import androidx.core.graphics.createBitmap
@@ -57,6 +60,7 @@ import ru.skachay.app.download.SocialFallbackPolicy
 import ru.skachay.app.download.SourceType
 import ru.skachay.app.download.TikTokLink
 import ru.skachay.app.download.TikTokResolver
+import ru.skachay.app.download.TikTokVideoTransfer
 import ru.skachay.app.download.YouTubeDirectTransfer
 import ru.skachay.app.download.YouTubeFormatSelector
 import ru.skachay.app.download.YouTubePlaylistLink
@@ -65,6 +69,7 @@ import ru.skachay.app.network.UrlNetworkPolicy
 import ru.skachay.app.notifications.DownloadNotificationId
 import ru.skachay.app.notifications.DownloadNotificationSnapshot
 import ru.skachay.app.notifications.DownloadNotificationState
+import ru.skachay.app.notifications.setDownloadArtwork
 import ru.skachay.app.queue.DownloadControl
 import ru.skachay.app.queue.DownloadQueueDatabase
 import ru.skachay.app.queue.DownloadQueueEntry
@@ -631,30 +636,45 @@ class DownloadService : Service() {
             if (!directory.mkdir()) throw IOException("Could not create temporary folder")
             var lastUpdate = 0L
             var lastCheckpoint = 0L
+
+            fun publishProgress(
+                percent: Int?,
+                stage: DownloadStage? = null,
+            ) {
+                val now = SystemClock.elapsedRealtime()
+                lastUpdate = now
+                val transfer = transferStats.snapshot()
+                if (now - lastCheckpoint >= 5_000 || stage != null) {
+                    lastCheckpoint = now
+                    DiagnosticsStore.checkpoint(this, provider, job, transfer, timer.snapshot(), vpnActive())
+                }
+                val visiblePercent = percent?.coerceIn(0, 99)
+                val notification =
+                    progressNotification(
+                        visiblePercent,
+                        url,
+                        id,
+                        settings.quality,
+                        fileName,
+                        transfer,
+                        mediaTitle,
+                        readyThumbnail(thumbnailTask),
+                        stage,
+                    )
+                notifySafely(id, notification, if (stage == null) transfer.averageBytesPerSecond else 0L)
+                val queueTransfer = if (stage == null) transfer else transfer.copy(averageBytesPerSecond = null)
+                updateQueueProgress(id, visiblePercent, queueTransfer)
+            }
+
             val report: (Int?) -> Unit = { percent ->
                 control.checkpoint()
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastUpdate >= 500 || percent == 100) {
-                    lastUpdate = now
-                    val transfer = transferStats.snapshot()
-                    if (now - lastCheckpoint >= 5_000) {
-                        lastCheckpoint = now
-                        DiagnosticsStore.checkpoint(this, provider, job, transfer, timer.snapshot(), vpnActive())
-                    }
-                    val notification =
-                        progressNotification(
-                            percent,
-                            url,
-                            id,
-                            settings.quality,
-                            fileName,
-                            transfer,
-                            mediaTitle,
-                            readyThumbnail(thumbnailTask),
-                        )
-                    notifySafely(id, notification, transfer.averageBytesPerSecond)
-                    updateQueueProgress(id, percent, transfer)
-                }
+                if (SystemClock.elapsedRealtime() - lastUpdate >= 500 || percent == 100) publishProgress(percent)
+            }
+            var lastStage: DownloadStage? = null
+            val onStage: (DownloadStage) -> Unit = { stage ->
+                timer.switchTo(stage)
+                if (stage != lastStage && (stage == DownloadStage.MERGE || stage == DownloadStage.SAVING)) publishProgress(null, stage)
+                lastStage = stage
             }
             val detailedReport: (YtDlpProgress) -> Unit = { progress ->
                 control.checkpoint()
@@ -682,8 +702,9 @@ class DownloadService : Service() {
                         directory,
                         settings.connections,
                         settings.retries,
-                        timer,
+                        onStage,
                         report,
+                        detailedReport,
                         fileName,
                         transferStats,
                         outputFolderUri,
@@ -717,7 +738,7 @@ class DownloadService : Service() {
                                         directory = directory,
                                         quality = settings.quality,
                                         onProgress = report,
-                                        onStage = timer::switchTo,
+                                        onStage = onStage,
                                         retries = settings.retries,
                                         audioExport = audioExport,
                                         audioBitrate = audioBitrate,
@@ -780,7 +801,7 @@ class DownloadService : Service() {
                                                 directory = youtubeDirectory,
                                                 connections = settings.connections,
                                                 retries = settings.retries,
-                                                onStage = timer::switchTo,
+                                                onStage = onStage,
                                                 onProgress = { received, total ->
                                                     val sample = transferStats.update(received, total)
                                                     val percent =
@@ -813,7 +834,7 @@ class DownloadService : Service() {
                                                 youtubeDirectory,
                                                 settings.quality,
                                                 report,
-                                                timer::switchTo,
+                                                onStage,
                                                 infoJson = null,
                                                 selected = selected ?: streams.video,
                                                 videoOnly = videoOnly,
@@ -843,7 +864,7 @@ class DownloadService : Service() {
                                         youtubeDirectory,
                                         settings.quality,
                                         report,
-                                        timer::switchTo,
+                                        onStage,
                                         null,
                                         selected,
                                         videoOnly,
@@ -869,7 +890,7 @@ class DownloadService : Service() {
                                 directory = directory,
                                 quality = settings.quality,
                                 onProgress = report,
-                                onStage = timer::switchTo,
+                                onStage = onStage,
                                 retries = settings.retries,
                                 onDetailedProgress = detailedReport,
                                 onNewStream = { transferStats.nextStream() },
@@ -898,7 +919,7 @@ class DownloadService : Service() {
                                     directory,
                                     settings.quality,
                                     report,
-                                    timer::switchTo,
+                                    onStage,
                                     retries = settings.retries,
                                     onDetailedProgress = detailedReport,
                                     onNewStream = { transferStats.nextStream() },
@@ -908,7 +929,7 @@ class DownloadService : Service() {
                                 direct
                             }
                         }
-                    timer.switchTo(DownloadStage.SAVING)
+                    onStage(DownloadStage.SAVING)
                     val output = mutableListOf<Pair<Uri, String>>()
                     val fileNameForMedia = fileName ?: FileNameTemplate.resolve(settings.fileNameTemplate, mediaTitle, url, provider.label)
                     try {
@@ -1024,6 +1045,10 @@ class DownloadService : Service() {
                 vpnActive = vpnActive(),
             )
             updateQueueComplete(id, uri.toString(), mediaTitle ?: "Готово")
+            val toastContext = applicationContext
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(toastContext, "Готово · файл сохранён", Toast.LENGTH_SHORT).show()
+            }
             val thumbnail = readyThumbnail(thumbnailTask) ?: thumbnailFromFile(uri, mime)
             val resultMessage =
                 if (mediaTitle?.startsWith("Плейлист") ==
@@ -1107,8 +1132,9 @@ class DownloadService : Service() {
         directory: File,
         connections: Int,
         retries: Int,
-        timer: StageTimer,
+        onStage: (DownloadStage) -> Unit,
         report: (Int?) -> Unit,
+        detailedReport: (YtDlpProgress) -> Unit,
         fileName: String?,
         transferStats: TransferStats,
         folderUri: Uri?,
@@ -1119,19 +1145,51 @@ class DownloadService : Service() {
         val files =
             items.mapIndexed { index, item ->
                 if (index > 0) transferStats.nextStream(previousComplete = true)
-                if (!ResolvedMediaNetworkPolicy.isAllowed(sourceUrl, item.url)) throw IOException("Unsafe media address")
-                val file = File(directory, "item-$index.tmp")
-                sourceDownloader.download(
-                    item.url,
-                    file,
-                    connections = connections,
-                    headers = item.headers,
-                    retries = retries,
-                ) { received, total ->
-                    val sample = transferStats.update(received, total)
-                    val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
-                    report(itemPercent?.let { (index * 100 + it) / items.size })
+
+                fun direct(candidate: ResolvedMedia): File {
+                    if (!ResolvedMediaNetworkPolicy.isAllowed(sourceUrl, candidate.url)) throw IOException("Unsafe media address")
+                    return sourceDownloader.download(
+                        candidate.url,
+                        File(directory, "item-$index.tmp"),
+                        connections = connections,
+                        headers = candidate.headers,
+                        retries = retries,
+                    ) { received, total ->
+                        transferStats.update(received, total)
+                        val itemPercent = total?.takeIf { it > 0 }?.let { (received * 100 / it).coerceIn(0, 100).toInt() }
+                        report(itemPercent?.let { (index * 100 + it) / items.size })
+                    }
                 }
+
+                val file =
+                    if (items.size == 1 && item.type == ResolvedMedia.Kind.VIDEO && TikTokLink.supports(sourceUrl) &&
+                        SocialFallbackPolicy.ytDlpEnabled(sourceUrl, RecipeRegistry.current)
+                    ) {
+                        TikTokVideoTransfer.download(
+                            original = item,
+                            direct = ::direct,
+                            refresh = {
+                                transferStats.start()
+                                report(null)
+                                tiktok.resolve(sourceUrl).singleOrNull()
+                            },
+                            alternate = {
+                                transferStats.start()
+                                YtDlpRuntime.download(
+                                    context = this,
+                                    url = sourceUrl,
+                                    directory = directory,
+                                    onProgress = report,
+                                    onStage = onStage,
+                                    retries = retries,
+                                    onDetailedProgress = detailedReport,
+                                    onNewStream = { transferStats.nextStream() },
+                                )
+                            },
+                        )
+                    } else {
+                        direct(item)
+                    }
                 val mime =
                     detect(file, item.url, audioOnly = item.type == ResolvedMedia.Kind.AUDIO)
                         ?: throw IOException("Not a supported media file")
@@ -1146,7 +1204,7 @@ class DownloadService : Service() {
             }
         val saved = mutableListOf<Pair<Uri, String>>()
         try {
-            timer.switchTo(DownloadStage.SAVING)
+            onStage(DownloadStage.SAVING)
             files.forEachIndexed { index, (file, mime) ->
                 saved += MediaStoreWriter(this).save(file, mime, fileName, if (files.size > 1) index + 1 else null, folderUri) to mime
             }
@@ -1213,16 +1271,29 @@ class DownloadService : Service() {
         transfer: TransferSnapshot? = null,
         title: String? = null,
         thumbnail: Bitmap? = null,
+        stage: DownloadStage? = null,
     ): Notification {
         val text =
-            buildList {
-                percent?.let { add("$it%") }
-                transfer?.averageBytesPerSecond?.takeIf { it > 0 }?.let { add(formatSpeed(it)) }
-                if (transfer?.bytesReceived != null && transfer.totalBytes != null) {
-                    add("${formatBytes(transfer.bytesReceived)} из ${formatBytes(transfer.totalBytes)}")
+            when (stage) {
+                DownloadStage.MERGE -> {
+                    "Объединяю видео и звук…"
                 }
-                transfer?.remainingMillis?.let { add("ещё ${formatDuration(it)}") }
-            }.joinToString(" · ")
+
+                DownloadStage.SAVING -> {
+                    "Сохраняю файл…"
+                }
+
+                else -> {
+                    buildList {
+                        percent?.let { add("$it%") }
+                        transfer?.averageBytesPerSecond?.takeIf { it > 0 }?.let { add(formatSpeed(it)) }
+                        if (transfer?.bytesReceived != null && transfer.totalBytes != null) {
+                            add("${formatBytes(transfer.bytesReceived)} из ${formatBytes(transfer.totalBytes)}")
+                        }
+                        transfer?.remainingMillis?.let { add("ещё ${formatDuration(it)}") }
+                    }.joinToString(" · ")
+                }
+            }
         val builder =
             Notification
                 .Builder(this, CHANNEL)
@@ -1296,11 +1367,7 @@ class DownloadService : Service() {
                 .setContentText(message)
                 .setColor(0xFF534AB7.toInt())
                 .setAutoCancel(true)
-        thumbnail?.let {
-            val picture = Notification.BigPictureStyle().bigPicture(it)
-            if (Build.VERSION.SDK_INT >= 31) picture.showBigPictureWhenCollapsed(true)
-            builder.setStyle(picture)
-        }
+        thumbnail?.let { builder.setDownloadArtwork(it) }
         if (uri != null && mime != null) {
             val open =
                 Intent(Intent.ACTION_VIEW)

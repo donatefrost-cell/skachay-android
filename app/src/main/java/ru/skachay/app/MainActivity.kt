@@ -608,7 +608,14 @@ private fun queueProgressLabel(
 ): String {
     val parts =
         buildList {
-            add(entry.percent?.let { "Загружается · $it%" } ?: "Загружается")
+            val processing = entry.percent == null && entry.totalBytes?.let { it > 0 && entry.bytesReceived >= it } == true
+            add(
+                when {
+                    processing -> "Подготовка файла…"
+                    entry.percent != null -> "Загружается · " + entry.percent + "%"
+                    else -> "Загружается"
+                },
+            )
             if (entry.bytesReceived > 0) {
                 val received =
                     android.text.format.Formatter

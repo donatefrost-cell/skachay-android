@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.graphics.createBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
@@ -20,6 +21,7 @@ import org.junit.runner.RunWith
 import ru.skachay.app.DownloadService
 import ru.skachay.app.MainActivity
 import ru.skachay.app.notifications.DownloadNotificationId
+import ru.skachay.app.notifications.setDownloadArtwork
 import ru.skachay.app.settings.DownloadPlatform
 import ru.skachay.app.settings.Quality
 import ru.skachay.app.settings.SettingsRepository
@@ -28,6 +30,22 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class DownloadNotificationCountInstrumentedTest {
+    @Test
+    fun compactNotificationKeepsAnIconAndExpandedNotificationKeepsThePicture() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val cover = createBitmap(160, 90)
+        val notification =
+            Notification
+                .Builder(context, DownloadService.COMPLETED_CHANNEL)
+                .setDownloadArtwork(cover)
+                .build()
+        assertNotNull(notification.getLargeIcon())
+        assertTrue(notification.extras.containsKey(Notification.EXTRA_PICTURE))
+        if (Build.VERSION.SDK_INT >= 31) {
+            assertTrue(!notification.extras.getBoolean(Notification.EXTRA_SHOW_BIG_PICTURE_WHEN_COLLAPSED))
+        }
+    }
+
     @Test
     fun twoSequentialDownloadsLeaveOneFinalNotificationPerRequest() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
