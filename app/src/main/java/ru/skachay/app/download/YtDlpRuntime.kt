@@ -134,8 +134,9 @@ internal object YtDlpRuntime {
     fun extractPreview(
         context: Context,
         url: String,
+        destination: File,
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
-    ): String {
+    ) {
         initialize(context)
         val retries =
             runBlocking {
@@ -145,19 +146,14 @@ internal object YtDlpRuntime {
                     .first()
                     .retries
             }
-        return RetryAfterUpdate.run(
+        RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
-                    val request =
-                        com.yausername.youtubedl_android
-                            .YoutubeDLRequest(url)
-                            .addOption("--no-playlist")
-                            .addOption("--skip-download")
-                            .addOption("--dump-single-json")
-                            .addOption("--socket-timeout", 30)
-                    YtDlpOptions.addRetries(request, retries)
+                    destination.outputStream().close()
+                    val request = YtDlpOptions.previewRequest(url, destination.absolutePath, retries)
                     addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(request, sourceUrl = url, onWarnings = onWarnings).out
+                    executeWithWarningCapture(request, sourceUrl = url, onWarnings = onWarnings)
+                    Unit
                 }
             },
             update = { update(context, selectedChannel(context)) },

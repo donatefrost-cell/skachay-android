@@ -10,6 +10,16 @@ import ru.skachay.app.settings.VideoBitrateLimit
 
 class YtDlpOptionsTest {
     @Test
+    fun writesMetadataToOneFileWithoutDownloadingTheVideo() {
+        val url = "https://youtube.com/shorts/JCCFP67IpuQ"
+        val output = "/cache/private preview.tmp"
+        val args = YtDlpOptions.previewRequest(url, output, retries = 2).buildCommand()
+        assertTrue(args.containsAll(listOf("--no-playlist", "--skip-download")))
+        assertFalse(args.contains("--dump-single-json"))
+        assertEquals(listOf("--print-to-file", "%()j", output, url), args.takeLast(4))
+    }
+
+    @Test
     fun segmentedFallbackKeepsSelectedVideoQualityAndCombinesWithAudio() {
         val selected = AvailableFormat("136", "mp4", "avc1.4D401F", null, 720, 30, null, null)
         val args =

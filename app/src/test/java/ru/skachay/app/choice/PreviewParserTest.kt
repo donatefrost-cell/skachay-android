@@ -4,9 +4,48 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.StringWriter
 
 class PreviewParserTest {
+    @get:Rule val temporary = TemporaryFolder()
+
+    @Test
+    fun compactsLargeExtractorMetadataWithoutDroppingFormatOrSubtitleLanguages() {
+        val raw = temporary.newFile()
+        raw.bufferedWriter().use { writer ->
+            writer.append("""{"title":"Смесь для печени","automatic_captions":{"en":[{"url":""")
+            writer.append('"')
+            repeat(11) { writer.append("x".repeat(1024 * 1024)) }
+            writer.append('"')
+            writer.append(
+                """}],"ru":[{"url":"https://www.youtube.com/api/timedtext"}]},"subtitles":{"ru":[]},"formats":[
+                    {"format_id":"137","ext":"mp4","vcodec":"avc1","height":1080,"fps":60,
+                     "url":"https://rr1.googlevideo.com/video","http_headers":{"User-Agent":"preview"}},
+                    {"format_id":"140","ext":"m4a","acodec":"mp4a","abr":128,"format_note":"original DRC"}
+                  ]}""",
+            )
+        }
+        val preview = PreviewParser.parseExtraction(raw)
+        assertEquals("Смесь для печени", preview.title)
+        assertEquals(listOf("137", "140"), preview.formats.map { it.id })
+        assertEquals(listOf(SubtitleTrack("en", false, true), SubtitleTrack("ru", true, true)), preview.subtitles)
+        val compact = StringWriter()
+        PreviewParser.writeCache(preview, compact)
+        assertTrue(compact.toString().length < 1000)
+        assertEquals(preview, PreviewParser.parse(compact.toString()))
+    }
+
+    @Test
+    fun rejectsExtractorMetadataAboveItsSeparateSafetyLimit() {
+        val raw = temporary.newFile()
+        java.io.RandomAccessFile(raw, "rw").use { it.setLength(33L * 1024 * 1024) }
+        val failure = org.junit.Assert.assertThrows(java.io.IOException::class.java) { PreviewParser.parseExtraction(raw) }
+        assertTrue(failure.message.orEmpty().contains("too large"))
+    }
+
     @Test
     fun manifestFormatsRemainSelectableButAreNotDirectFiles() {
         val json =

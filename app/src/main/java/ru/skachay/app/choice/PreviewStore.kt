@@ -51,24 +51,27 @@ internal object PreviewStore {
             val started = SystemClock.elapsedRealtime()
             val warnings = mutableListOf<String>()
             DiagnosticsStore.clearEngineWarnings(context, providerFor(url))
-            val json =
+            val extracted = File.createTempFile("yt-dlp-metadata-", ".tmp", directory)
+            val preview =
                 try {
-                    YtDlpRuntime.extractPreview(context, url) { captured ->
+                    YtDlpRuntime.extractPreview(context, url, extracted) { captured ->
                         warnings += captured
                         DiagnosticsStore.recordEngineWarnings(context, providerFor(url), captured)
                     }
+                    PreviewParser.parseExtraction(extracted)
                 } finally {
+                    extractionTimes[key(url)] = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
+                    extracted.delete()
                     saveWarnings(context, url, warnings)
                 }
-            extractionTimes[key(url)] = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
-            val preview = PreviewParser.parse(json) ?: throw IOException("Invalid media metadata")
             val file = file(context, url)
             val temporary = File.createTempFile("preview-", ".tmp", directory)
             try {
-                temporary.writeText(json, Charsets.UTF_8)
-                if (temporary.length() > MAX_CACHE_BYTES) throw IOException("Media metadata is too large")
-                java.nio.file.Files
-                    .move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                temporary.bufferedWriter(Charsets.UTF_8).use { PreviewParser.writeCache(preview, it) }
+                if (temporary.length() <= MAX_CACHE_BYTES) {
+                    java.nio.file.Files
+                        .move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                }
             } finally {
                 temporary.delete()
             }
@@ -100,7 +103,7 @@ internal object PreviewStore {
         val usable = if (forDownload) PreviewLifetime.isUsableForDownload(age) else PreviewLifetime.isFresh(age)
         if (!file.isFile || file.length() > MAX_CACHE_BYTES || !usable) return null
         return try {
-            PreviewParser.parse(file.readText(Charsets.UTF_8))?.let { preview ->
+            PreviewParser.parse(file.readText(Charsets.UTF_8))?.takeIf { it.formats.isNotEmpty() }?.let { preview ->
                 readWarnings(context, url).takeIf { it.isNotEmpty() }?.let {
                     DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it)
                 }

@@ -2,10 +2,14 @@ package ru.skachay.app.choice
 
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
+import com.google.gson.stream.JsonWriter
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import ru.skachay.app.network.UrlNetworkPolicy
+import java.io.File
 import java.io.IOException
+import java.io.Reader
 import java.io.StringReader
+import java.io.Writer
 
 internal data class VideoPreview(
     val title: String,
@@ -44,6 +48,7 @@ internal data class AvailableFormat(
 
 internal object PreviewParser {
     private const val MAX_JSON_BYTES = 5L * 1024 * 1024
+    private const val MAX_EXTRACTION_BYTES = 32L * 1024 * 1024
     const val MAX_JSON_CHARS = 5 * 1024 * 1024
     private val safeId = Regex("[A-Za-z0-9._-]{1,80}")
     private val safeLanguage = Regex("[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")
@@ -58,8 +63,23 @@ internal object PreviewParser {
 
     fun parse(json: String): VideoPreview? {
         if (json.length > MAX_JSON_CHARS || !isWithinByteLimit(json)) return null
+        return parse(StringReader(json))
+    }
+
+    fun parseExtraction(file: File): VideoPreview {
+        val bytes = file.length()
+        if (bytes == 0L) throw IOException("yt-dlp returned empty media metadata")
+        if (bytes > MAX_EXTRACTION_BYTES) throw IOException("yt-dlp media metadata is too large ($bytes bytes)")
+        val preview =
+            file.bufferedReader(Charsets.UTF_8).use { parse(it) }
+                ?: throw IOException("yt-dlp returned malformed media metadata ($bytes bytes)")
+        if (preview.formats.isEmpty()) throw IOException("No formats found in yt-dlp metadata")
+        return preview
+    }
+
+    private fun parse(input: Reader): VideoPreview? {
         return try {
-            JsonReader(StringReader(json)).use { reader ->
+            JsonReader(input).use { reader ->
                 if (reader.peek() != JsonToken.BEGIN_OBJECT) return null
                 reader.beginObject()
                 var title: String? = null
@@ -123,11 +143,58 @@ internal object PreviewParser {
         reader.beginObject()
         while (reader.hasNext()) {
             val language = reader.nextName()
-            if (safeLanguage.matches(language) && languages.size < 100) languages += language
+            if (languages.size < 250 && language.length <= 48 && safeLanguage.matches(language)) languages += language
             reader.skipValue()
         }
         reader.endObject()
         return languages
+    }
+
+    fun writeCache(
+        preview: VideoPreview,
+        destination: Writer,
+    ) {
+        val writer = JsonWriter(destination)
+        writer.setSerializeNulls(false)
+        writer.beginObject()
+        writer.name("title").value(preview.title)
+        writer.name("uploader").value(preview.author)
+        writer.name("duration").value(preview.durationSeconds)
+        writer.name("thumbnail").value(preview.thumbnailUrl)
+        writer.name("formats").beginArray()
+        preview.formats.forEach { format ->
+            writer.beginObject()
+            writer.name("format_id").value(format.id)
+            writer.name("ext").value(format.extension)
+            writer.name("vcodec").value(format.videoCodec)
+            writer.name("acodec").value(format.audioCodec)
+            writer.name("height").value(format.height)
+            writer.name("fps").value(format.fps)
+            writer.name("abr").value(format.audioBitrate)
+            writer.name("vbr").value(format.videoBitrate)
+            writer.name("filesize").value(format.sizeBytes)
+            writer.name("language").value(format.language)
+            if (format.isOriginalAudio || format.isVolumeBalanced) {
+                val note = listOfNotNull("original".takeIf { format.isOriginalAudio }, "DRC".takeIf { format.isVolumeBalanced })
+                writer.name("format_note").value(note.joinToString(" "))
+            }
+            format.directUrl?.let { url ->
+                writer.name("url").value(url)
+                writer.name("http_headers").beginObject()
+                format.httpHeaders.forEach { (name, value) -> writer.name(name).value(value) }
+                writer.endObject()
+            }
+            writer.endObject()
+        }
+        writer.endArray()
+        writer.name("subtitles").beginObject()
+        preview.subtitles.filter { it.manual }.forEach { writer.name(it.language).beginArray().endArray() }
+        writer.endObject()
+        writer.name("automatic_captions").beginObject()
+        preview.subtitles.filter { it.automatic }.forEach { writer.name(it.language).beginArray().endArray() }
+        writer.endObject()
+        writer.endObject()
+        writer.flush()
     }
 
     private fun readFormat(reader: JsonReader): AvailableFormat? {
