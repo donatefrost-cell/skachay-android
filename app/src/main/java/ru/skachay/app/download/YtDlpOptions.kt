@@ -8,14 +8,18 @@ import ru.skachay.app.settings.VideoBitrateLimit
 internal object YtDlpOptions {
     fun previewRequest(
         url: String,
-        output: String,
+        output: String?,
         retries: Int,
     ): YoutubeDLRequest =
         YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--skip-download")
             addOption("--socket-timeout", 30)
-            addCommands(listOf("--print-to-file", "%()j", output))
+            if (output == null) {
+                addOption("--dump-single-json")
+            } else {
+                addCommands(listOf("--print-to-file", "%()j", output))
+            }
             addRetries(this, retries)
         }
 

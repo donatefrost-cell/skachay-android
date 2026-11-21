@@ -20,6 +20,13 @@ class YtDlpOptionsTest {
     }
 
     @Test
+    fun supportsRawMetadataForSocialMediaResolver() {
+        val args = YtDlpOptions.previewRequest("https://www.tiktok.com/@example/video/123", null, retries = 2).buildCommand()
+        assertTrue(args.contains("--dump-single-json"))
+        assertFalse(args.contains("--print-to-file"))
+    }
+
+    @Test
     fun segmentedFallbackKeepsSelectedVideoQualityAndCombinesWithAudio() {
         val selected = AvailableFormat("136", "mp4", "avc1.4D401F", null, 720, 30, null, null)
         val args =

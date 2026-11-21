@@ -134,9 +134,9 @@ internal object YtDlpRuntime {
     fun extractPreview(
         context: Context,
         url: String,
-        destination: File,
+        destination: File? = null,
         onWarnings: (List<String>) -> Unit = { DiagnosticsStore.recordEngineWarnings(context, providerFor(url), it) },
-    ) {
+    ): String {
         initialize(context)
         val retries =
             runBlocking {
@@ -146,14 +146,13 @@ internal object YtDlpRuntime {
                     .first()
                     .retries
             }
-        RetryAfterUpdate.run(
+        return RetryAfterUpdate.run(
             operation = {
                 runtimeLock.read {
-                    destination.outputStream().close()
-                    val request = YtDlpOptions.previewRequest(url, destination.absolutePath, retries)
+                    destination?.outputStream()?.close()
+                    val request = YtDlpOptions.previewRequest(url, destination?.absolutePath, retries)
                     addRuntimeSupport(context, url, request)
-                    executeWithWarningCapture(request, sourceUrl = url, onWarnings = onWarnings)
-                    Unit
+                    executeWithWarningCapture(request, sourceUrl = url, onWarnings = onWarnings).out
                 }
             },
             update = { update(context, selectedChannel(context)) },
