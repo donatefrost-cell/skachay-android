@@ -17,6 +17,7 @@ internal object YouTubeFormatSelector {
         videoBitrateLimit: VideoBitrateLimit = VideoBitrateLimit.ANY,
     ): YouTubeStreams? {
         val video = preferredVideo(preview, quality, videoBitrateLimit)?.takeIf { it.directUrl != null } ?: return null
+        if (video.hasAudio) return YouTubeStreams(video, null)
         val audio = bestM4a(preview, requireDirectUrl = true) ?: return null
         return YouTubeStreams(video, audio)
     }
@@ -61,15 +62,13 @@ internal object YouTubeFormatSelector {
         val video = selected?.takeIf { it.hasVideo } ?: if (selected == null) preferredVideo(preview, quality, videoBitrateLimit) else null
         if (selected == null && video == null) return null
         val audio =
-            selected?.takeIf { it.hasAudio } ?: if (selected == null || (video != null && !videoOnly && !video.hasAudio)) {
+            selected?.takeIf { it.hasAudio } ?: if (video != null && !video.hasAudio && (selected == null || !videoOnly)) {
                 bestM4a(preview, requireDirectUrl = false)
             } else {
                 null
             }
-        if (selected != null && selected.hasVideo &&
-            selected.hasAudio
-        ) {
-            return estimatedBytes(YouTubeStreams(selected, null), preview.durationSeconds)
+        if (video?.hasAudio == true) {
+            return estimatedBytes(YouTubeStreams(video, null), preview.durationSeconds)
         }
         return estimatedBytes(YouTubeStreams(video, audio), preview.durationSeconds)
     }

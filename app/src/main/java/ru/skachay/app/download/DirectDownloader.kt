@@ -4,11 +4,11 @@ import android.annotation.SuppressLint
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.Callable
@@ -58,11 +58,8 @@ class DirectDownloader(
                         }
                     }
                 }
-            val canUseRanges =
-                info != null && info.size >= 2 && connections > 1 &&
-                    DownloadSpacePolicy.hasEnough(DownloadSpacePolicy.availableBytes(parent), info.size, copies = 2)
             if (info != null) ensureSpace(parent, info.size, copies = 1, existingBytesToReplace = 0)
-            if (info == null || info.size < 2 || connections == 1 || !canUseRanges) {
+            if (info == null || info.size < 2 || connections == 1) {
                 downloadWhole(url, temporary, headers, progress, retries)
             } else {
                 try {
@@ -126,33 +123,30 @@ class DirectDownloader(
     ) {
         val size = info.size
         val segments = rangeSegments(size, connections)
-        val parts = mutableListOf<File>()
-        var rangeExecutor: java.util.concurrent.ExecutorService? = null
+        RandomAccessFile(destination, "rw").use { it.setLength(size) }
+        val executor = Executors.newFixedThreadPool(minOf(connections, segments.size))
         try {
-            repeat(segments.size) { parts += File.createTempFile("part-", ".tmp", destination.parentFile) }
-            val executor = Executors.newFixedThreadPool(minOf(connections, parts.size))
-            rangeExecutor = executor
             progress.reset(size)
             val tasks =
-                parts.mapIndexed { index, part ->
-                    val start = segments[index].first
-                    val end = segments[index].last
+                segments.map { segment ->
+                    val start = segment.first
+                    val end = segment.last
                     Callable {
+                        var offset = start
                         retry(retries) {
-                            val completed = part.length()
-                            if (completed > 0 && (info.validator == null || completed >= end - start + 1)) {
+                            if (offset > start && info.validator == null) {
                                 throw IOException("Cannot safely resume this range")
                             }
-                            val requestStart = start + completed
+                            if (offset > end) throw UnusableRangeException("Range framing did not complete")
                             val request =
                                 request(url, headers)
-                                    .header("Range", "bytes=$requestStart-$end")
+                                    .header("Range", "bytes=$offset-$end")
                                     .header("Accept-Encoding", "identity")
                                     .apply { info.validator?.let { header("If-Range", it) } }
                                     .build()
                             client.newCall(request).execute().use { response ->
                                 if (response.code >= 400) throw HttpStatusException(response.code)
-                                val expectedRange = "bytes $requestStart-$end/$size"
+                                val expectedRange = "bytes $offset-$end/$size"
                                 if (response.code != 206 || response.header("Content-Range") != expectedRange) {
                                     throw UnusableRangeException("Invalid range response")
                                 }
@@ -160,10 +154,24 @@ class DirectDownloader(
                                 if (info.etag != null && receivedEtag != null && info.etag != receivedEtag) {
                                     throw UnusableRangeException("Resource changed")
                                 }
-                                FileOutputStream(part, completed > 0).buffered().use { output ->
-                                    copy(response.body.byteStream(), output, progress)
+                                val body = response.body
+                                val declaredLength = body.contentLength()
+                                if (declaredLength >= 0 && declaredLength != end - offset + 1) {
+                                    throw UnusableRangeException("Invalid range length")
                                 }
-                                if (part.length() != end - start + 1) throw IOException("Incomplete range")
+                                val input = body.byteStream()
+                                val buffer = ByteArray(32 * 1024)
+                                RandomAccessFile(destination, "rw").use { output ->
+                                    output.seek(offset)
+                                    while (offset <= end) {
+                                        val read = input.read(buffer, 0, minOf(buffer.size.toLong(), end - offset + 1).toInt())
+                                        if (read < 0) throw IOException("Incomplete range")
+                                        output.write(buffer, 0, read)
+                                        offset += read
+                                        progress.advance(read)
+                                    }
+                                    if (declaredLength < 0 && input.read() != -1) throw UnusableRangeException("Unexpected range data")
+                                }
                             }
                         }
                     }
@@ -176,12 +184,8 @@ class DirectDownloader(
                     throw IOException("Range request failed", e.cause)
                 }
             }
-            destination.outputStream().use { output ->
-                parts.forEach { it.inputStream().use { input -> input.copyTo(output) } }
-            }
         } finally {
-            rangeExecutor?.shutdownNow()
-            parts.forEach(File::delete)
+            executor.shutdownNow()
         }
     }
 

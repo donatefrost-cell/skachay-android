@@ -10,6 +10,15 @@ import ru.skachay.app.settings.VideoBitrateLimit
 
 class YouTubeFormatSelectorTest {
     @Test
+    fun progressiveVideoUsesItsOwnAudioAndSize() {
+        val muxed = format("18", "mp4", "avc1", "mp4a", 360, 128, "https://cdn.example/video").copy(sizeBytes = 100)
+        val audio = format("140", "m4a", null, "mp4a", null, 128, "https://cdn.example/audio").copy(sizeBytes = 50)
+        val preview = VideoPreview("Видео", null, 60, null, listOf(muxed, audio))
+        assertEquals(YouTubeStreams(muxed, null), YouTubeFormatSelector.automatic(preview, Quality.AUTO))
+        assertEquals(100L, YouTubeFormatSelector.estimate(preview, Quality.AUTO, null, false))
+    }
+
+    @Test
     fun autoSelectsH264UpTo720pAndM4aAudio() {
         val preview =
             VideoPreview(

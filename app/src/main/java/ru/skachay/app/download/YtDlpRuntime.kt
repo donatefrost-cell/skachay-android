@@ -6,6 +6,7 @@ import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import ru.skachay.app.R
 import ru.skachay.app.choice.AvailableFormat
 import ru.skachay.app.diagnostics.DiagnosticsStore
 import ru.skachay.app.diagnostics.DownloadStage
@@ -21,14 +22,19 @@ import ru.skachay.app.settings.SettingsRepository
 import ru.skachay.app.settings.VideoBitrateLimit
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantReadWriteLock
+import java.util.zip.ZipFile
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
 internal enum class EngineUpdateResult { UPDATED, ALREADY_CURRENT }
 
 internal object YtDlpRuntime {
+    internal const val BUNDLED_VERSION = "2026.10.26"
+    private val engineVersion = Regex("""^__version__\s*=\s*['"](\d{4}\.\d{2}\.\d{2})""")
     private val initialization = Any()
     private val runtimeLock = ReentrantReadWriteLock()
 
@@ -42,6 +48,7 @@ internal object YtDlpRuntime {
             if (initialized) return
             val started = android.os.SystemClock.elapsedRealtime()
             YoutubeDL.init(context.applicationContext)
+            installBundledEngineIfOlder(context)
             FFmpeg.init(context.applicationContext)
             FfmpegRuntime.prepare(context.applicationContext)
             initializationDurationMs = (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0)
@@ -50,6 +57,32 @@ internal object YtDlpRuntime {
     }
 
     fun startupDurationMs(): Long? = initializationDurationMs
+
+    private fun installBundledEngineIfOlder(context: Context) {
+        val directory = File(File(context.noBackupFilesDir, YoutubeDL.baseName), YoutubeDL.ytdlpDirName)
+        val engine = File(directory, YoutubeDL.ytdlpBin)
+        val installedVersion =
+            try {
+                ZipFile(engine).use { archive ->
+                    val entry = archive.getEntry("yt_dlp/version.py") ?: return@use null
+                    archive.getInputStream(entry).bufferedReader().useLines { lines ->
+                        lines.take(12).mapNotNull { engineVersion.find(it)?.groupValues?.get(1) }.firstOrNull()
+                    }
+                }
+            } catch (_: IOException) {
+                null
+            }
+        if (installedVersion != null && installedVersion >= BUNDLED_VERSION) return
+        val replacement = File.createTempFile("bundled-yt-dlp-", ".tmp", directory)
+        try {
+            context.resources.openRawResource(R.raw.ytdlp).use { input ->
+                replacement.outputStream().use { output -> input.copyTo(output) }
+            }
+            Files.move(replacement.toPath(), engine.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            replacement.delete()
+        }
+    }
 
     fun updateIfDue(context: Context) {
         val prefs = context.getSharedPreferences("engine", Context.MODE_PRIVATE)

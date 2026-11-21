@@ -68,6 +68,10 @@ class DownloadNotificationCountInstrumentedTest {
                 assertNotNull("Expected one final notification for request $index", waitForNotification(manager, ids[index]))
             }
 
+            assertEquals(
+                NotificationManager.IMPORTANCE_HIGH,
+                manager.getNotificationChannel(DownloadService.COMPLETED_CHANNEL).importance,
+            )
             val matching = manager.activeNotifications.filter { it.id in ids }
             assertEquals("Each request must keep one notification under its stable ID", ids.toSet(), matching.map { it.id }.toSet())
             assertEquals("A request must not create multiple notification rows", ids.size, matching.size)

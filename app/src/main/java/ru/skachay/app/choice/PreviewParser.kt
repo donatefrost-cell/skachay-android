@@ -145,6 +145,7 @@ internal object PreviewParser {
         var language: String? = null
         var note: String? = null
         var url: String? = null
+        var protocol: String? = null
         var headers: Map<String, String> = emptyMap()
         var drm = false
         reader.beginObject()
@@ -206,6 +207,10 @@ internal object PreviewParser {
                     url = reader.stringValue()?.takeIf(::safeMediaUrl)
                 }
 
+                "protocol" -> {
+                    protocol = reader.stringValue()
+                }
+
                 "http_headers" -> {
                     headers = readHeaders(reader)
                 }
@@ -230,6 +235,7 @@ internal object PreviewParser {
         val extension = ext?.takeIf { it in setOf("mp4", "webm", "m4a") } ?: return null
         if (drm || (video == null && audio == null)) return null
         if (video == null && extension == "webm" && audio?.lowercase() !in setOf("opus", "vorbis")) return null
+        val directUrl = url?.takeIf { protocol == null || protocol == "https" || protocol == "http" }
         return AvailableFormat(
             safeFormatId,
             extension,
@@ -243,8 +249,8 @@ internal object PreviewParser {
             note?.contains("original", ignoreCase = true) == true,
             note?.let { Regex("\\bDRC\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) } == true,
             videoBitrate ?: totalBitrate,
-            url,
-            headers.takeIf { url != null }.orEmpty(),
+            directUrl,
+            headers.takeIf { directUrl != null }.orEmpty(),
         )
     }
 

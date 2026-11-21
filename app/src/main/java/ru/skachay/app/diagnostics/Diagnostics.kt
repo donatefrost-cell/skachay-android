@@ -78,6 +78,10 @@ internal fun diagnosticError(
     error: Throwable,
 ): String {
     val causes = throwableDetails(error)
+    val messages = causes.mapNotNull { it.message }.joinToString("\n").lowercase(Locale.ROOT)
+    if (provider == DownloadProvider.YOUTUBE && messages.contains("confirm you") && messages.contains("not a bot")) {
+        return "YouTube запросил проверку доступа. Откройте ролик в YouTube или попробуйте другую сеть."
+    }
     if (causes.any {
             it is UnknownHostException || it is SocketTimeoutException || it is SocketException ||
                 it is ConnectException || it is SSLException
@@ -85,7 +89,6 @@ internal fun diagnosticError(
     ) {
         return "Не удалось подключиться. Проверьте интернет и попробуйте снова."
     }
-    val messages = causes.mapNotNull { it.message }.joinToString("\n").lowercase(Locale.ROOT)
     if (causes.any { it is LinkageError }) return "Ошибка обработки файла. Сведения сохранены в диагностике."
     if (provider == DownloadProvider.YOUTUBE) {
         val unavailableFormat =

@@ -5,6 +5,8 @@ import android.content.ContextWrapper
 import android.media.MediaExtractor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
@@ -24,6 +26,14 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class DownloadRuntimeInstrumentedTest {
+    @Test
+    fun packagedEngineRunsOnAndroidWithoutAnUpdateRequest() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        YtDlpRuntime.initialize(context)
+        val version = YoutubeDL.execute(YoutubeDLRequest(emptyList<String>()).addOption("--version"), null, null).out.trim()
+        assertTrue("Unexpected yt-dlp version: $version", version.take(10) >= YtDlpRuntime.BUNDLED_VERSION)
+    }
+
     @Test
     fun interruptedProgressAndNestedCrashCauseAreRetained() {
         val context =

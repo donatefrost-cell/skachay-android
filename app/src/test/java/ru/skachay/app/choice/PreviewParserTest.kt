@@ -8,6 +8,23 @@ import org.junit.Test
 
 class PreviewParserTest {
     @Test
+    fun manifestFormatsRemainSelectableButAreNotDirectFiles() {
+        val json =
+            """
+            {"formats": [
+              {"format_id":"hls", "ext":"mp4", "vcodec":"avc1", "protocol":"m3u8_native",
+               "url":"https://manifest.googlevideo.com/api/manifest/hls_playlist/id/123"},
+              {"format_id":"file", "ext":"mp4", "vcodec":"avc1", "protocol":"https",
+               "url":"https://rr1.googlevideo.com/videoplayback?id=123"}
+            ]}
+            """.trimIndent()
+        val formats = requireNotNull(PreviewParser.parse(json)).formats
+        assertEquals(listOf("hls", "file"), formats.map { it.id })
+        assertNull(formats.first().directUrl)
+        assertEquals("https://rr1.googlevideo.com/videoplayback?id=123", formats.last().directUrl)
+    }
+
+    @Test
     fun offersWebmAudioFormats() {
         val json = """{"title":"Видео","formats":[{"format_id":"251","ext":"webm","vcodec":"none","acodec":"opus","abr":128}]}"""
         val formats = requireNotNull(PreviewParser.parse(json)).formats

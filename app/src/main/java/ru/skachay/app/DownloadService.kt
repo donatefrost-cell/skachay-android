@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.media.MediaMetadataRetriever
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -78,6 +79,7 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -88,6 +90,7 @@ private class WifiOnlyRequiredException : IOException()
 
 class DownloadService : Service() {
     private val scheduler = Executors.newSingleThreadExecutor()
+    private val thumbnailExecutor = Executors.newFixedThreadPool(2)
     private val executor = ThreadPoolExecutor(2, 4, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
     private val downloader = MediaDownloadClient.downloader
     private val instagram = InstagramResolver()
@@ -106,6 +109,7 @@ class DownloadService : Service() {
             connectTimeoutSeconds = 5,
             readTimeoutSeconds = 5,
             writeTimeoutSeconds = 5,
+            allowedRedirectHostSuffixes = setOf("ytimg.com", "ggpht.com"),
         )
     }
     private val notificationLargeIcon by lazy {
@@ -125,6 +129,9 @@ class DownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, "Загрузки", NotificationManager.IMPORTANCE_LOW))
+        notifications.createNotificationChannel(
+            NotificationChannel(COMPLETED_CHANNEL, "Скачивание завершено", NotificationManager.IMPORTANCE_HIGH),
+        )
     }
 
     override fun onStartCommand(
@@ -591,7 +598,7 @@ class DownloadService : Service() {
         val transferStats = TransferStats(SystemClock::elapsedRealtime)
         var directory: File? = null
         var mediaTitle: String? = null
-        var thumbnailUrl: String? = null
+        var thumbnailTask: Future<Bitmap?>? = null
         try {
             control.checkpoint()
             val outputFolderUri = resolveDownloadFolder(requestedFolderUri, null)
@@ -605,7 +612,18 @@ class DownloadService : Service() {
                 updateQueueComplete(id, previous.toString(), "Уже скачано")
                 notifySafely(
                     id,
-                    resultNotification("Уже скачано", "Нажмите, чтобы открыть", previous, type, url, id, settings.quality, fileName),
+                    resultNotification(
+                        "Уже скачано",
+                        "Нажмите, чтобы открыть",
+                        previous,
+                        type,
+                        url,
+                        id,
+                        settings.quality,
+                        fileName,
+                        thumbnailFromFile(previous, type),
+                        alertOnCompletion = false,
+                    ),
                 )
                 return
             }
@@ -623,7 +641,17 @@ class DownloadService : Service() {
                         lastCheckpoint = now
                         DiagnosticsStore.checkpoint(this, provider, job, transfer, timer.snapshot(), vpnActive())
                     }
-                    val notification = progressNotification(percent, url, id, settings.quality, fileName, transfer, mediaTitle)
+                    val notification =
+                        progressNotification(
+                            percent,
+                            url,
+                            id,
+                            settings.quality,
+                            fileName,
+                            transfer,
+                            mediaTitle,
+                            readyThumbnail(thumbnailTask),
+                        )
                     notifySafely(id, notification, transfer.averageBytesPerSecond)
                     updateQueueProgress(id, percent, transfer)
                 }
@@ -718,7 +746,10 @@ class DownloadService : Service() {
                                 val previewTitle = cached.preview.title.take(100)
                                 mediaTitle = previewTitle
                                 updateQueueTitle(id, previewTitle)
-                                thumbnailUrl = cached.preview.thumbnailUrl
+                                thumbnailTask =
+                                    cached.preview.thumbnailUrl?.let { imageUrl ->
+                                        thumbnailExecutor.submit<Bitmap?> { loadNotificationThumbnail(imageUrl) }
+                                    }
                                 report(null)
                                 val extractionElapsed = (SystemClock.elapsedRealtime() - extractionStarted).coerceAtLeast(0)
                                 timer.record(DownloadStage.EXTRACTION, PreviewStore.extractionDuration(url) ?: extractionElapsed)
@@ -991,7 +1022,7 @@ class DownloadService : Service() {
                 vpnActive = vpnActive(),
             )
             updateQueueComplete(id, uri.toString(), mediaTitle ?: "Готово")
-            val thumbnail = loadNotificationThumbnail(thumbnailUrl)
+            val thumbnail = readyThumbnail(thumbnailTask) ?: thumbnailFromFile(uri, mime)
             val resultMessage =
                 if (mediaTitle?.startsWith("Плейлист") ==
                     true
@@ -1062,6 +1093,7 @@ class DownloadService : Service() {
                 ),
             )
         } finally {
+            thumbnailTask?.cancel(true)
             directory?.deleteRecursively()
             activeUrls.remove(historyKey, control)
         }
@@ -1178,6 +1210,7 @@ class DownloadService : Service() {
         fileName: String?,
         transfer: TransferSnapshot? = null,
         title: String? = null,
+        thumbnail: Bitmap? = null,
     ): Notification {
         val text =
             buildList {
@@ -1192,7 +1225,7 @@ class DownloadService : Service() {
             Notification
                 .Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_download)
-                .setLargeIcon(notificationLargeIcon)
+                .setLargeIcon(thumbnail ?: notificationLargeIcon)
                 .setContentTitle(title ?: url.toUri().host?.removePrefix("www.") ?: "Скачай")
                 .setContentText(text.ifBlank { "Подключаюсь к источнику…" })
                 .setGroup(GROUP_KEY)
@@ -1250,19 +1283,22 @@ class DownloadService : Service() {
         quality: Quality?,
         fileName: String?,
         thumbnail: Bitmap? = null,
+        alertOnCompletion: Boolean = true,
     ): Notification {
         val builder =
             Notification
-                .Builder(this, CHANNEL)
+                .Builder(this, if (alertOnCompletion) COMPLETED_CHANNEL else CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_download)
                 .setLargeIcon(thumbnail ?: notificationLargeIcon)
                 .setContentTitle(title)
                 .setContentText(message)
-                .setGroup(GROUP_KEY)
-                .setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
                 .setColor(0xFF534AB7.toInt())
                 .setAutoCancel(true)
-        thumbnail?.let { builder.setStyle(Notification.BigPictureStyle().bigPicture(it).bigLargeIcon(notificationLargeIcon)) }
+        thumbnail?.let {
+            val picture = Notification.BigPictureStyle().bigPicture(it)
+            if (Build.VERSION.SDK_INT >= 31) picture.showBigPictureWhenCollapsed(true)
+            builder.setStyle(picture)
+        }
         if (uri != null && mime != null) {
             val open =
                 Intent(Intent.ACTION_VIEW)
@@ -1437,8 +1473,28 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
             .build()
 
-    private fun loadNotificationThumbnail(url: String?): Bitmap? {
-        if (url == null) return null
+    private fun readyThumbnail(task: Future<Bitmap?>?): Bitmap? =
+        task?.takeIf { it.isDone && !it.isCancelled }?.let { runCatching { it.get() }.getOrNull() }
+
+    private fun thumbnailFromFile(
+        uri: Uri,
+        mime: String,
+    ): Bitmap? {
+        if (Build.VERSION.SDK_INT < 27 || !mime.startsWith("video/")) return null
+        return try {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this, uri)
+                retriever.getScaledFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 384, 384)
+            } finally {
+                retriever.release()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun loadNotificationThumbnail(url: String): Bitmap? {
         return try {
             val request =
                 Request
@@ -1447,9 +1503,10 @@ class DownloadService : Service() {
                     .header("User-Agent", "Skachay/Android")
                     .build()
             thumbnailClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful || response.body.contentLength() !in 0..2_000_000) return null
-                val bytes = response.body.bytes()
-                if (bytes.size > 2_000_000) return null
+                if (!response.isSuccessful || response.body.contentLength() > 2_000_000) return null
+                val source = response.body.source()
+                if (source.request(2_000_001)) return null
+                val bytes = source.readByteArray()
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                 if (bounds.outWidth !in 1..4096 || bounds.outHeight !in 1..4096) return null
@@ -1486,6 +1543,7 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        thumbnailExecutor.shutdownNow()
         scheduler.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
@@ -1527,6 +1585,7 @@ class DownloadService : Service() {
         const val EXTRA_OVERRIDE_DOWNLOAD_FOLDER = "override_download_folder"
         const val EXTRA_FOLDER_GRANT_LEASED = "folder_grant_leased"
         private const val CHANNEL = "downloads"
+        internal const val COMPLETED_CHANNEL = "downloads-completed"
         private const val GROUP_SUMMARY_ID = Int.MAX_VALUE
         private const val GROUP_KEY = "ru.skachay.app.DOWNLOADS"
         private const val SHARE_REQUEST_OFFSET = 10_000
@@ -1583,7 +1642,10 @@ private class DownloadNotificationCenter(
 
     private fun render(snapshot: DownloadNotificationSnapshot<Notification>) {
         if (snapshot.detachForeground) service.stopForeground(Service.STOP_FOREGROUND_DETACH)
-        snapshot.completed?.let { (id, notification) -> notifySafely(id, notification) }
+        snapshot.completed?.let { (id, notification) ->
+            if (notification.channelId == DownloadService.COMPLETED_CHANNEL) manager.cancel(id)
+            notifySafely(id, notification)
+        }
         snapshot.foregroundId?.let { id ->
             snapshot.active[id]?.let { notification ->
                 try {

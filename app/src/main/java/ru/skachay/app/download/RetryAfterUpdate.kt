@@ -9,8 +9,14 @@ object RetryAfterUpdate {
     ): T =
         try {
             operation()
-        } catch (_: YoutubeDLException) {
-            update()
+        } catch (original: YoutubeDLException) {
+            try {
+                update()
+            } catch (updateError: Exception) {
+                if (updateError is InterruptedException) throw updateError
+                original.addSuppressed(updateError)
+                throw original
+            }
             operation()
         }
 }
