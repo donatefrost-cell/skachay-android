@@ -815,7 +815,7 @@ class DownloadService : Service() {
                                                 report,
                                                 timer::switchTo,
                                                 infoJson = null,
-                                                selected = selected,
+                                                selected = selected ?: streams.video,
                                                 videoOnly = videoOnly,
                                                 retries = settings.retries,
                                                 audioExport = audioExport,

@@ -112,6 +112,8 @@ android {
         warningsAsErrors = true
         // The release APK intentionally targets ARM phones; x86 variants would substantially increase its download size.
         disable += "ChromeOsAbiSupport"
+        // Dependency versions are pinned and scanned by CI. New releases should not break an unchanged build.
+        disable += "GradleDependency"
     }
 
     bundle {
