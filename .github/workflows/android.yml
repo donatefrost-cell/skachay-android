@@ -167,7 +167,22 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           ./gradlew --no-daemon "-PreleaseVersion=$version" testDebugUnitTest lintDebug ktlintCheck assembleRelease
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+          apk=app/build/outputs/apk/release/app-release.apk
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          signer="$tools/apksigner"
+          manifest="$("$tools/aapt" dump badging "$apk")"
+          grep -F "package: name='ru.skachay.app'" <<< "$manifest" | grep -F "versionName='$version'"
+          expected_signer='Signer #1 certificate SHA-256 digest: 4701b63dfa20ecbab33d0447f1ea21acf2ed4c0e7ffd500686f31bba159f03eb'
+          modern="$("$signer" verify --verbose --print-certs "$apk")"
+          legacy="$("$signer" verify --min-sdk-version 23 --max-sdk-version 23 --verbose --print-certs "$apk")"
+          printf '%s\n%s\n' "$modern" "$legacy"
+          grep -Fxq 'Verified using v1 scheme (JAR signing): true' <<< "$legacy"
+          grep -Fxq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$modern"
+          grep -Fxq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$modern"
+          for result in "$modern" "$legacy"; do
+            grep -Fxq 'Number of signers: 1' <<< "$result"
+            grep -Fxq "$expected_signer" <<< "$result"
+          done
       - name: Создать выпуск с APK
         env:
           GH_TOKEN: ${{ github.token }}
@@ -176,6 +191,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           ## Что нового
+
+          - Для совместимости установщиков в APK добавлены подписи v1 и v3. Сборка проверяет совпадение сертификата с предыдущими выпусками.
 
           - Векторный значок приложения и тематический значок Android без растровой AI-картинки.
           - Отдельный белый значок уведомлений «Скачай».

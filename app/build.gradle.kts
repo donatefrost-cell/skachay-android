@@ -96,6 +96,9 @@ android {
                 storePassword = requireNotNull(signingValues[1])
                 keyAlias = requireNotNull(signingValues[2])
                 keyPassword = requireNotNull(signingValues[3])
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
