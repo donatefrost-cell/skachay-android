@@ -74,7 +74,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: ./gradlew --no-daemon --write-locks connectedDebugAndroidTest -PtestX86=true -Pandroid.testInstrumentationRunnerArguments.class=ru.skachay.app.queue.DownloadQueueDatabaseTest,ru.skachay.app.download.DownloadNotificationCountInstrumentedTest,ru.skachay.app.DownloadQueueScrollStabilityTest,ru.skachay.app.download.DownloadRuntimeInstrumentedTest
       - name: Проверить зависимости на известные уязвимости
-        uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
+        uses: google/osv-scanner-action/osv-scanner-action@d3c1414ded37de590f207572e37a7d180f1d0ef7 # v2.7.1
         with:
           scan-args: |-
             --lockfile=./app/gradle.lockfile
@@ -157,7 +157,7 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
           printf 'SKACHAY_KEYSTORE_PATH=%s\n' "$keystore" >> "$GITHUB_ENV"
       - name: Проверить зависимости на известные уязвимости
-        uses: google/osv-scanner-action/osv-scanner-action@0e457b42d0120153c352875e9b758b1e5c58c7e5 # v2.7.1
+        uses: google/osv-scanner-action/osv-scanner-action@d3c1414ded37de590f207572e37a7d180f1d0ef7 # v2.7.1
         with:
           scan-args: |-
             --lockfile=./app/gradle.lockfile
